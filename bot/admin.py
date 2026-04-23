@@ -211,11 +211,7 @@ class AdminView(discord.ui.View):
             label=ta(guild_id, user.id, "btn_roles"), style=discord.ButtonStyle.primary, row=0
         )
         async def _roles(interaction, _self=self):
-            gid = interaction.guild_id
-            await interaction.response.edit_message(
-                embed=knight_embed(ta(gid, _self.user.id, "roles_pick")),
-                view=RankRoleSelectView(_self.user),
-            )
+            await show_rank_role_select(interaction, _self.user)
         btn_roles.callback = _roles
         self.add_item(btn_roles)
 
