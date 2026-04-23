@@ -57,7 +57,7 @@ class ChallengeMenuView(discord.ui.View):
         async def pve_cb(interaction):
             await interaction.response.edit_message(
                 embed=knight_embed(t(interaction.guild_id, self.user.id, "pve_pick_level")),
-                view=PveLevelView(self.user),
+                view=PveLevelView(self.user, interaction.guild_id),
             )
         pve_btn.callback = pve_cb
         self.add_item(pve_btn)
@@ -84,17 +84,12 @@ def _level_label(lv: int, locale: str = "vi") -> str:
 
 
 class PveLevelView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+        locale = get_locale(gid, user.id) if gid else "vi"
 
-    async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
-
-    async def setup(self, interaction):
-        gid = interaction.guild_id
-        locale = get_locale(gid, self.user.id)
-        self.clear_items()
         for lv in [1, 2, 3, 4, 5]:
             label = _level_label(lv, locale)
             btn = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, row=(lv - 1) // 3)
@@ -105,7 +100,10 @@ class PveLevelView(discord.ui.View):
             btn.callback = cb
             self.add_item(btn)
 
-        _add_lobby_exit(self, self.user, gid, row=2)
+        _add_lobby_exit(self, user, gid, row=2)
+
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
 
     async def _show_monsters(self, interaction, level: int):
         p = get_player(interaction.guild_id, self.user.id)
@@ -142,11 +140,9 @@ class PveLevelView(discord.ui.View):
 
 
 async def show_pve_level_view(interaction, user):
-    view = PveLevelView(user)
-    await view.setup(interaction)
     await interaction.response.edit_message(
         embed=knight_embed(t(interaction.guild_id, user.id, "pve_pick_level")),
-        view=view,
+        view=PveLevelView(user, interaction.guild_id),
     )
 
 
@@ -481,9 +477,10 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
 
 
 class PostBattleView(discord.ui.View):
-    def __init__(self, user, guild_id=None):
+    def __init__(self, user, guild_id=None, allowed_ids: set[int] | None = None):
         super().__init__(timeout=300)
         self.user = user
+        self.allowed_ids = allowed_ids if allowed_ids is not None else {user.id}
         gid = guild_id
 
         again = discord.ui.Button(
@@ -492,16 +489,32 @@ class PostBattleView(discord.ui.View):
         )
         async def again_cb(interaction):
             await interaction.response.edit_message(
-                embed=knight_embed(t(interaction.guild_id, self.user.id, "msg_choose_next_foe")),
-                view=ChallengeMenuView(self.user, interaction.guild_id),
+                embed=knight_embed(t(interaction.guild_id, interaction.user.id, "msg_choose_next_foe")),
+                view=ChallengeMenuView(interaction.user, interaction.guild_id),
             )
         again.callback = again_cb
         self.add_item(again)
 
-        _add_lobby_exit(self, user, gid, row=0)
+        lobby = discord.ui.Button(
+            label=t(gid, user.id, "btn_lobby"),
+            style=discord.ButtonStyle.secondary, row=0,
+        )
+        async def lobby_cb(interaction):
+            await go_lobby(interaction, interaction.user)
+        lobby.callback = lobby_cb
+        self.add_item(lobby)
+
+        exitb = discord.ui.Button(
+            label=t(gid, user.id, "btn_exit"),
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        async def exit_cb(interaction):
+            await exit_bot(interaction)
+        exitb.callback = exit_cb
+        self.add_item(exitb)
 
     async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
+        return interaction.user.id in self.allowed_ids
 
 
 # ============== PvP ==============
@@ -849,4 +862,7 @@ async def run_pvp_battle(interaction, msg, u1, u2):
     if new2:
         result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
 
-    await msg.edit(embed=knight_embed(result), view=PostBattleView(u1, interaction.guild_id))
+    await msg.edit(
+        embed=knight_embed(result),
+        view=PostBattleView(u1, interaction.guild_id, allowed_ids={u1.id, u2.id}),
+    )
