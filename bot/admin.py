@@ -68,7 +68,7 @@ class AdminView(discord.ui.View):
     async def edit(self, interaction, button):
         await interaction.response.send_modal(EditPlayerModal(self.user))
 
-    @discord.ui.button(label="🗑 Reset chỉ số người chơi về 0", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="🗑 Reset người chơi về mặc định (5-5-5)", style=discord.ButtonStyle.danger, row=2)
     async def delete(self, interaction, button):
         await interaction.response.send_modal(DeletePlayerModal(self.user))
 
