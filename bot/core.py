@@ -665,6 +665,40 @@ def announce_unlocks(new_ids: list[str], locale: str = "vi") -> str:
     return "\n".join(lines)
 
 
+async def announce_achievements_public(channel: discord.abc.Messageable,
+                                       member: discord.abc.User,
+                                       new_ids: list[str],
+                                       locale: str = "vi"):
+    """Post a public celebration message when a player unlocks new achievements."""
+    if not new_ids or channel is None:
+        return
+    if locale == "en":
+        lines = [f"🎖 **{member.display_name} has unlocked a new achievement!**"]
+        for aid in new_ids:
+            a = ACHIEVEMENTS[aid]
+            lines.append(f"• {a['icon']} **{a['name_en']}** — {a['desc_en']}")
+        title = "🎖 Achievement Unlocked"
+    else:
+        lines = [f"🎖 **{member.display_name} đã mở khoá thành tựu mới!**"]
+        for aid in new_ids:
+            a = ACHIEVEMENTS[aid]
+            lines.append(f"• {a['icon']} **{a['name']}** — {a['desc']}")
+        title = "🎖 Mở khoá thành tựu"
+    embed = discord.Embed(
+        title=title,
+        description="\n".join(lines),
+        color=GOLD_COLOR,
+    )
+    try:
+        await channel.send(
+            content=member.mention,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
 # ============== NAVIGATION ==============
 async def go_lobby(interaction: discord.Interaction, user: discord.User):
     from .menu import MainView
