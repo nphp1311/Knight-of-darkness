@@ -67,21 +67,21 @@ class TrainView(discord.ui.View):
 
 
 # ============== TANK ==============
+# ============== TANK ==============
 COLOR_RED = "🔴"
 COLOR_GREEN = "🟢"
 COLOR_BLUE = "🔵"
-COLOR_YELLOW = "🔘"
+
 COLOR_LABELS = {
     COLOR_RED: "🔴",
     COLOR_GREEN: "🟢",
     COLOR_BLUE: "🔵",
-    COLOR_YELLOW: "🔘",
 }
+
 DIRECTIONS = {
     COLOR_RED:    ("◀️ Né trái",   discord.ButtonStyle.danger),
     COLOR_GREEN:  ("⏸️ Đứng yên",  discord.ButtonStyle.success),
     COLOR_BLUE:   ("▶️ Né phải",   discord.ButtonStyle.primary),
-    COLOR_YELLOW: ("🔼 Nhảy lên",  discord.ButtonStyle.secondary),
 }
 
 
@@ -144,11 +144,11 @@ async def run_tank_session(interaction, user):
     msg = None
     for turn in range(1, 6):
         hint_color = random.choice(list(COLOR_LABELS.keys()))
-        label = COLOR_LABELS[hint_color]
+        emoji = hint_color
         embed = knight_embed(
-            f"☠️ **Lượt {turn}/5** — Đấu sĩ xương khô sắp **{label} tấn công ngươi{label}**, "
-            f"ngươi sẽ né phía nào?\n\nBấm nút trùng màu hint để né."
-        )
+            f"☠️ **Lượt {turn}/5** — Đấu sĩ xương khô sắp {emoji} **tấn công** {emoji} ngươi, "
+            f"ngươi sẽ né phía nào?\n\nBấm nút trùng màu để né."
+        )       
         view = TankRoundView(user, hint_color)
         if msg is None:
             await interaction.edit_original_response(embed=embed, view=view)
