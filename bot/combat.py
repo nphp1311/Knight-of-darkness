@@ -46,7 +46,7 @@ class ChallengeMenuView(discord.ui.View):
             style=discord.ButtonStyle.primary, row=0,
         )
         async def pvp_cb(interaction):
-            await interaction.response.send_modal(PvpInviteModal(self.user, interaction.guild_id))
+            await show_pvp_target_picker(interaction, self.user)
         pvp_btn.callback = pvp_cb
         self.add_item(pvp_btn)
 
@@ -518,87 +518,126 @@ class PostBattleView(discord.ui.View):
 
 
 # ============== PvP ==============
-class PvpInviteModal(discord.ui.Modal):
-    def __init__(self, challenger: discord.User, guild_id):
-        locale = get_locale(guild_id, challenger.id) if guild_id else "vi"
-        title = "⚔️ Challenge Invitation" if locale == "en" else "⚔️ Thư mời thách đấu"
-        super().__init__(title=title)
+ONLINE_STATUSES = {discord.Status.online, discord.Status.idle, discord.Status.dnd}
+
+
+def _list_online_targets(guild: discord.Guild, exclude_id: int) -> list[discord.Member]:
+    """Return up to 25 non-bot members who appear online (idle/dnd counted)."""
+    online = []
+    offline = []
+    for m in guild.members:
+        if m.bot or m.id == exclude_id:
+            continue
+        if m.status in ONLINE_STATUSES:
+            online.append(m)
+        else:
+            offline.append(m)
+    online.sort(key=lambda m: m.display_name.lower())
+    return online[:25]
+
+
+class PvpTargetSelectView(discord.ui.View):
+    def __init__(self, challenger, guild: discord.Guild, guild_id=None):
+        super().__init__(timeout=180)
         self.challenger = challenger
-        self.guild_id = guild_id
-        label = "Opponent's ID or @mention" if locale == "en" else "ID hoặc @mention của đối thủ"
-        placeholder = "Enter user ID or paste a mention <@123...>" if locale == "en" else "Nhập user ID hoặc dán mention <@123...>"
-        self.target_input = discord.ui.TextInput(
-            label=label,
-            placeholder=placeholder,
-            required=True,
-        )
-        self.add_item(self.target_input)
+        gid = guild_id
+        locale = get_locale(gid, challenger.id) if gid else "vi"
 
-    async def on_submit(self, interaction: discord.Interaction):
-        raw = self.target_input.value.strip()
-        locale = get_locale(interaction.guild_id, self.challenger.id)
-        target_id = None
-        if raw.startswith("<@") and raw.endswith(">"):
-            inner = raw[2:-1].lstrip("!&")
-            try:
-                target_id = int(inner)
-            except ValueError:
-                pass
+        targets = _list_online_targets(guild, challenger.id)
+        if targets:
+            placeholder = "Choose an online opponent…" if locale == "en" else "Chọn đối thủ đang online…"
+            options = []
+            for m in targets:
+                status_emoji = {
+                    discord.Status.online: "🟢",
+                    discord.Status.idle:   "🌙",
+                    discord.Status.dnd:    "⛔",
+                }.get(m.status, "⚪")
+                options.append(discord.SelectOption(
+                    label=m.display_name[:90],
+                    value=str(m.id),
+                    description=("Online" if locale == "en" else "Đang online") if m.status == discord.Status.online else (
+                        "Idle" if locale == "en" else "Vắng mặt") if m.status == discord.Status.idle else (
+                        "Do not disturb" if locale == "en" else "Đừng làm phiền"),
+                    emoji=status_emoji,
+                ))
+            select = discord.ui.Select(placeholder=placeholder, options=options, min_values=1, max_values=1, row=0)
+
+            async def pick_cb(interaction):
+                target_id = int(select.values[0])
+                target = guild.get_member(target_id)
+                if not target:
+                    try:
+                        target = await guild.fetch_member(target_id)
+                    except (discord.NotFound, discord.HTTPException):
+                        target = None
+                if not target:
+                    cur = get_locale(interaction.guild_id, self.challenger.id)
+                    msg = "💀 That person is no longer in this realm." if cur == "en" else "💀 Kẻ đó không còn ở trong vương quốc này."
+                    await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
+                    return
+                await send_pvp_invite(interaction, self.challenger, target)
+
+            select.callback = pick_cb
+            self.add_item(select)
         else:
-            try:
-                target_id = int(raw)
-            except ValueError:
-                pass
+            empty_label = "🌑 No online opponents" if locale == "en" else "🌑 Không có đối thủ online"
+            empty_btn = discord.ui.Button(label=empty_label, style=discord.ButtonStyle.secondary, disabled=True, row=0)
+            self.add_item(empty_btn)
 
-        if not target_id:
-            msg = "💀 Could not find that opponent. Try again with a @mention or ID." if locale == "en" else "💀 Không tìm được đối thủ. Hãy thử lại với @mention hoặc ID."
-            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
-            return
+        _add_lobby_exit(self, challenger, gid, row=1)
 
-        if target_id == self.challenger.id:
-            msg = "💀 You cannot challenge yourself." if locale == "en" else "💀 Ngươi không thể thách đấu chính mình."
-            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
-            return
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.challenger.id
 
-        target = interaction.guild.get_member(target_id)
-        if not target:
-            try:
-                target = await interaction.guild.fetch_member(target_id)
-            except (discord.NotFound, discord.HTTPException):
-                target = None
-        if not target:
-            msg = "💀 That person is not present in this realm." if locale == "en" else "💀 Kẻ đó không có mặt trong vương quốc này."
-            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
-            return
 
-        if target.bot:
-            msg = "💀 You cannot challenge a bot." if locale == "en" else "💀 Ngươi không thể thách đấu một bot."
-            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
-            return
-
-        if locale == "en":
-            invite_text = (
-                f"⚔️✉️⚔️ **Challenge Invitation**\n\n"
-                f"{target.mention}, **{self.challenger.display_name}** challenges you to a 1v1 duel!\n"
-                f"{target.display_name}, do you dare accept?"
-            )
-        else:
-            invite_text = (
-                f"⚔️✉️⚔️ **Thư mời thách đấu**\n\n"
-                f"{target.mention}, **{self.challenger.display_name}** thách đấu ngươi 1v1!\n"
-                f"{target.display_name}, ngươi có dám chấp nhận?"
-            )
-        await interaction.response.send_message(
-            embed=knight_embed(invite_text),
-            view=PvpInviteView(self.challenger, target, interaction.guild_id),
+async def show_pvp_target_picker(interaction: discord.Interaction, challenger):
+    locale = get_locale(interaction.guild_id, challenger.id)
+    if locale == "en":
+        text = (
+            "⚔️ **Choose Your Opponent**\n\n"
+            "Below is the list of warriors currently online in this realm. "
+            "Pick one to send a 1v1 challenge."
         )
+    else:
+        text = (
+            "⚔️ **Chọn đối thủ**\n\n"
+            "Dưới đây là danh sách các đấu sĩ đang online trong vương quốc này. "
+            "Hãy chọn một người để gửi lời thách đấu 1vs1."
+        )
+    await interaction.response.edit_message(
+        embed=knight_embed(text),
+        view=PvpTargetSelectView(challenger, interaction.guild, interaction.guild_id),
+    )
+
+
+async def send_pvp_invite(interaction: discord.Interaction, challenger, target):
+    locale = get_locale(interaction.guild_id, challenger.id)
+    if locale == "en":
+        invite_text = (
+            f"⚔️✉️⚔️ **Challenge Invitation**\n\n"
+            f"{target.mention}, **{challenger.display_name}** challenges you to a 1v1 duel!\n"
+            f"{target.display_name}, do you dare accept? _(60 seconds to respond)_"
+        )
+    else:
+        invite_text = (
+            f"⚔️✉️⚔️ **Thư mời thách đấu**\n\n"
+            f"{target.mention}, **{challenger.display_name}** thách đấu ngươi 1v1!\n"
+            f"{target.display_name}, ngươi có dám chấp nhận? _(60 giây để trả lời)_"
+        )
+    view = PvpInviteView(challenger, target, interaction.guild_id)
+    await interaction.response.edit_message(embed=knight_embed(invite_text), view=view)
+    msg = await interaction.original_response()
+    view.bind_message(msg)
 
 
 class PvpInviteView(discord.ui.View):
     def __init__(self, challenger, target, guild_id=None):
-        super().__init__(timeout=120)
+        super().__init__(timeout=60)
         self.challenger = challenger
         self.target = target
+        self.responded = False
+        self.message: discord.Message | None = None
         gid = guild_id
 
         accept = discord.ui.Button(
@@ -606,6 +645,7 @@ class PvpInviteView(discord.ui.View):
             style=discord.ButtonStyle.success,
         )
         async def accept_cb(interaction):
+            self.responded = True
             await show_pvp_ready(interaction, self.challenger, self.target)
         accept.callback = accept_cb
         self.add_item(accept)
@@ -615,6 +655,7 @@ class PvpInviteView(discord.ui.View):
             style=discord.ButtonStyle.danger,
         )
         async def decline_cb(interaction):
+            self.responded = True
             locale = get_locale(interaction.guild_id, self.target.id)
             if locale == "en":
                 msg = f"🌑 {self.target.display_name} has declined {self.challenger.display_name}'s challenge."
@@ -624,12 +665,37 @@ class PvpInviteView(discord.ui.View):
         decline.callback = decline_cb
         self.add_item(decline)
 
+    def bind_message(self, message: discord.Message):
+        self.message = message
+
     async def interaction_check(self, interaction):
         if interaction.user.id != self.target.id:
             msg = "Only the invited player may respond." if get_locale(interaction.guild_id, interaction.user.id) == "en" else "Chỉ người được mời mới có thể trả lời."
             await interaction.response.send_message(msg, ephemeral=True)
             return False
         return True
+
+    async def on_timeout(self):
+        if self.responded or not self.message:
+            return
+        # Use challenger's locale (we don't have an interaction here)
+        from .storage import get_locale as _gl
+        gid = self.message.guild.id if self.message.guild else None
+        locale = _gl(gid, self.challenger.id) if gid else "vi"
+        if locale == "en":
+            msg = (
+                f"⌛ **{self.target.display_name}** did not respond within 60 seconds. "
+                f"The challenge from **{self.challenger.display_name}** has been cancelled."
+            )
+        else:
+            msg = (
+                f"⌛ **{self.target.display_name}** đã không trả lời trong 60 giây. "
+                f"Lời thách đấu của **{self.challenger.display_name}** đã bị hủy."
+            )
+        try:
+            await self.message.edit(embed=knight_embed(msg), view=None)
+        except (discord.NotFound, discord.HTTPException):
+            pass
 
 
 class PvpReadyView(discord.ui.View):
