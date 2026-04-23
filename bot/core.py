@@ -397,8 +397,8 @@ RANK_INFO = {
         "speech_en": "🕯 You have set foot on a path drenched in blood. May the souls of those who fall before you find peace.",
     },
     "II": {
-        "name": "⚔️ Chiến Binh Tập Luyện",
-        "name_en": "⚔️ The Seasoned Warrior",
+        "name": "⚔️ Chiến Binh Chuyên Nghiệp",
+        "name_en": "⚔️ The Professional Warrior",
         "speech": "⚔️ Máu làm ngươi say, và âm thanh hò reo vang lên từ khán đài làm ngươi mê muội.",
         "speech_en": "⚔️ Blood intoxicates you, and the roar of the crowd from the stands blinds your senses.",
     },
@@ -409,14 +409,14 @@ RANK_INFO = {
         "speech_en": "🩸 You have become a formidable adversary. Every creature in this arena now watches you with fearful eyes.",
     },
     "IV": {
-        "name": "👁 Kỵ Sĩ Hắc Ấn",
-        "name_en": "👁 The Dark Seal Knight",
-        "speech": "👁 Hãy dẫm lên xác của kẻ thua cuộc và tiến về phía trước. Vong hồn của bọn ta dõi theo người.",
-        "speech_en": "👁 Tread upon the fallen and march forward. The spirits of our kin watch over you.",
+        "name": "🏅 Đấu Sĩ Vô Song",
+        "name_en": "🏅 The Peerless Gladiator",
+        "speech": "🏅 Hãy dẫm lên xác của kẻ thua cuộc và tiến về phía trước. Vong hồn của bọn ta dõi theo người.",
+        "speech_en": "🏅 Tread upon the fallen and march forward. The spirits of our kin watch over you.",
     },
     "V": {
-        "name": "👑 Chúa Tể Hắc Ám",
-        "name_en": "👑 The Dark Lord",
+        "name": "🏆 Vương Giả Bóng Tối",
+        "name_en": "🏆 The Sovereign of Shadows",
         "speech": "🏆✨ Tại đấu trường này, giờ đây ngươi là Kẻ thống trị. ✨🏆",
         "speech_en": "🏆✨ In this arena, you are now the Sovereign. ✨🏆",
     },
@@ -633,7 +633,7 @@ ARENA_GUIDE = (
     "• Cơ chế: Tấn công / Phòng thủ với HP, đòn chí mạng, chặn, đánh trượt.\n\n"
     "📊 **Xem thông tin cá nhân** — kiểm tra chỉ số 🛡 🗡 💊, hạng, số trận thắng.\n"
     "🏆 **Bảng xếp hạng** — top 10 chiến binh trong server.\n\n"
-    "👑 **Hệ thống hạng** — I → II → III → IV → V (Kẻ Tập Sự → Chúa Tể Hắc Ám).\n"
+    "👑 **Hệ thống hạng** — I → II → III → IV → V (Kẻ Tập Sự → Vương Giả Bóng Tối).\n"
     "Khi đạt hạng mới, ta sẽ chúc mừng ngươi trước toàn thể chiến binh."
 )
 ARENA_GUIDE_EN = (
@@ -648,7 +648,7 @@ ARENA_GUIDE_EN = (
     "• System: Attack / Defend with HP, crits, blocks, and misses.\n\n"
     "📊 **My stats** — check 🛡 🗡 💊, rank, and total wins.\n"
     "🏆 **Leaderboard** — top 10 warriors of the server.\n\n"
-    "👑 **Rank system** — I → II → III → IV → V (Apprentice → Dark Lord).\n"
+    "👑 **Rank system** — I → II → III → IV → V (Apprentice → Sovereign of Shadows).\n"
     "When you reach a new rank, I will honor you before all warriors."
 )
 
@@ -667,10 +667,10 @@ ACHIEVEMENTS = {
     "pve_500":      {"icon": "👹", "name": "Diệt Quái x500",     "name_en": "Monster Slayer x500",  "desc": "Hạ gục 500 quái vật.",         "desc_en": "Defeat 500 monsters."},
     "boss_slayer":  {"icon": "🐉", "name": "Đồ Tể Của Boss",     "name_en": "Boss Butcher",         "desc": "Hạ gục được boss cấp V (Rồng Hắc Ám).", "desc_en": "Defeat the Tier V boss (Dark Dragon)."},
     "pvp_unbeaten": {"icon": "🏅", "name": "Bất Bại",            "name_en": "Unbeaten",             "desc": "Thắng 10 trận PvP liên tiếp.", "desc_en": "Win 10 PvP battles in a row."},
-    "rank_II":      {"icon": "⚔️", "name": "Đăng cơ Hạng II",   "name_en": "Ascend to Rank II",    "desc": "Trở thành ⚔️ Chiến Binh Tập Luyện và nhận role thưởng.", "desc_en": "Become ⚔️ The Seasoned Warrior and receive your rank role."},
+    "rank_II":      {"icon": "⚔️", "name": "Đăng cơ Hạng II",   "name_en": "Ascend to Rank II",    "desc": "Trở thành ⚔️ Chiến Binh Chuyên Nghiệp và nhận role thưởng.", "desc_en": "Become ⚔️ The Professional Warrior and receive your rank role."},
     "rank_III":     {"icon": "🩸", "name": "Đăng cơ Hạng III",  "name_en": "Ascend to Rank III",   "desc": "Trở thành 🩸 Kẻ Săn Linh Hồn và nhận role thưởng.",     "desc_en": "Become 🩸 The Soul Hunter and receive your rank role."},
-    "rank_IV":      {"icon": "👁",  "name": "Đăng cơ Hạng IV",   "name_en": "Ascend to Rank IV",    "desc": "Trở thành 👁 Kỵ Sĩ Hắc Ấn và nhận role thưởng.",        "desc_en": "Become 👁 The Dark Seal Knight and receive your rank role."},
-    "rank_V":       {"icon": "👑", "name": "Đăng cơ Hạng V",    "name_en": "Ascend to Rank V",     "desc": "Đăng cơ 👑 Chúa Tể Hắc Ám và nhận role thưởng.",         "desc_en": "Ascend to 👑 The Dark Lord and receive your rank role."},
+    "rank_IV":      {"icon": "🏅",  "name": "Đăng cơ Hạng IV",   "name_en": "Ascend to Rank IV",    "desc": "Trở thành 🏅 Đấu Sĩ Vô Song và nhận role thưởng.",        "desc_en": "Become 🏅 The Peerless Gladiator and receive your rank role."},
+    "rank_V":       {"icon": "🏆", "name": "Đăng cơ Hạng V",    "name_en": "Ascend to Rank V",     "desc": "Đăng cơ 🏆 Vương Giả Bóng Tối và nhận role thưởng.",         "desc_en": "Ascend to 🏆 The Sovereign of Shadows and receive your rank role."},
 }
 ACHIEVEMENT_ORDER = list(ACHIEVEMENTS.keys())
 
