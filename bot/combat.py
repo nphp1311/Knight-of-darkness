@@ -408,15 +408,27 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
     p_side = BattleSide(user.display_name, p_data["tank"], p_data["dps"], player_max_hp(p_data), False, user.id)
     e_side = BattleSide(monster.display, monster.tank, monster.dps, monster.hp, True)
 
-    await interaction.response.defer()
-    msg = interaction.message
+    # Defer the "Vào trận" interaction so we have time to drive the fight,
+    # then drive UI updates through the interaction's original response — same
+    # pattern Tank / DPS training use (mixing raw message.edit after defer was
+    # unreliable on some hosts and caused the "Vào trận" interaction failed).
+    try:
+        await interaction.response.defer()
+    except discord.InteractionResponded:
+        pass
 
     log = []
     turn = 1
     fled = False
+    msg = None
     while p_side.hp > 0 and e_side.hp > 0 and turn <= 30:
         view = PveActionView(user.id, locale, interaction.guild_id)
-        await msg.edit(embed=battle_status_embed(p_side, e_side, log, turn, locale), view=view)
+        embed = battle_status_embed(p_side, e_side, log, turn, locale)
+        if msg is None:
+            await interaction.edit_original_response(embed=embed, view=view)
+            msg = await interaction.original_response()
+        else:
+            await msg.edit(embed=embed, view=view)
         try:
             p_choice = await asyncio.wait_for(view.future, timeout=31)
         except asyncio.TimeoutError:
@@ -1440,6 +1452,19 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     # we tear it down right away.
     if thread is not None:
         delay = 0 if cancelled_by_admin else PVP_COOLDOWN_SECS
+        # Tell both fighters their private duel room is about to disappear.
+        if not cancelled_by_admin and delay > 0:
+            try:
+                notice = (
+                    f"{u1.mention} {u2.mention}\n"
+                    + t(gid, u1.id, "pvp_thread_delete_notice", secs=delay)
+                )
+                await thread.send(
+                    content=notice,
+                    allowed_mentions=discord.AllowedMentions(users=[u1, u2]),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
         try:
             await asyncio.sleep(delay)
         except Exception:
