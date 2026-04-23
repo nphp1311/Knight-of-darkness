@@ -2,10 +2,182 @@
 import discord
 
 from .storage import (
-    get_guild, get_player, persist,
+    get_guild, get_player, persist, get_locale,
     get_monsters, get_monsters_by_level, add_monster, update_monster, delete_monster,
 )
-from .core import knight_embed, RANKS, RANK_INFO, compute_rank, DEFAULT_LORE, go_lobby, exit_bot
+from .core import knight_embed, t, RANKS, RANK_INFO, compute_rank, DEFAULT_LORE, go_lobby, exit_bot
+
+
+# ============== ADMIN I18N ==============
+TR_ADMIN = {
+    # Main panel
+    "admin_title": (
+        "🛡️ **Bảng quản trị**",
+        "🛡️ **Admin Panel**"
+    ),
+    "btn_roles": (
+        "🏷 Thiết lập role thưởng theo hạng",
+        "🏷 Set Rank Reward Roles"
+    ),
+    "btn_lore": (
+        "🧿 Quản lý Lore trò chuyện",
+        "🧿 Manage Chat Lore"
+    ),
+    "btn_monsters": (
+        "🐉 Quản lý quái vật",
+        "🐉 Manage Monsters"
+    ),
+    "btn_edit_player": (
+        "✏️ Chỉnh sửa data người chơi",
+        "✏️ Edit Player Data"
+    ),
+    "btn_reset_player": (
+        "🗑 Reset người chơi về mặc định (5-5-5)",
+        "🗑 Reset Player to Default (5-5-5)"
+    ),
+    "btn_reset_server": (
+        "☢️ Reset toàn server",
+        "☢️ Reset Entire Server"
+    ),
+    # Rank roles
+    "roles_pick": (
+        "Hãy chọn hạng cần gắn role thưởng:",
+        "Choose the rank to assign a reward role:"
+    ),
+    "rank_btn_label": ("Hạng {rk}", "Rank {rk}"),
+    "roles_pick_role": (
+        "Hãy chọn role để gắn cho hạng **{rk}** ({rank_name}):",
+        "Choose the role to assign for Rank **{rk}** ({rank_name}):"
+    ),
+    "role_cleared": (
+        "Đã xoá role thưởng cho hạng **{rk}**.",
+        "Reward role for Rank **{rk}** has been removed."
+    ),
+    "btn_clear_role": (
+        "❌ Xoá role hiện tại",
+        "❌ Remove current role"
+    ),
+    "role_select_placeholder": ("Chọn role...", "Select a role..."),
+    "role_assigned": (
+        "✅ Đã gắn role {role_mention} làm phần thưởng khi người chơi đạt hạng **{rk}**.",
+        "✅ Role {role_mention} has been assigned as the reward for reaching Rank **{rk}**."
+    ),
+    # Lore
+    "lore_title": (
+        "🧿 **Quản lý Lore trò chuyện**\n\n"
+        "Câu mặc định luôn nằm trong pool hiển thị ngẫu nhiên cùng các câu do admin nhập.\n\n"
+        "Hãy chọn chủ đề lời thoại của Hiệp Sĩ Hắc Ám mà ngươi muốn quản lý:",
+        "🧿 **Manage Chat Lore**\n\n"
+        "The default line is always in the random pool alongside admin-entered lines.\n\n"
+        "Choose the dialogue topic you wish to manage:"
+    ),
+    "lore_default_label": (
+        "🔒 **(Mặc định, không thể sửa/xoá)** — {preview}",
+        "🔒 **(Default — cannot be edited or deleted)** — {preview}"
+    ),
+    "lore_no_admin": (
+        "\n_Chưa có câu nào do admin nhập. Pool hiện tại chỉ gồm câu mặc định._",
+        "\n_No admin-entered lines yet. The current pool contains only the default._"
+    ),
+    "lore_bot_note": (
+        "_Bot sẽ chọn ngẫu nhiên một câu trong pool (gồm câu mặc định + tất cả câu admin nhập) "
+        "khi user hỏi chủ đề này._",
+        "_The bot will randomly pick from the pool (default + all admin lines) "
+        "when a user asks about this topic._"
+    ),
+    "lore_item_header": (
+        "🧿 **Lore — {topic_label} — câu admin #{idx}**",
+        "🧿 **Lore — {topic_label} — admin line #{idx}**"
+    ),
+    "lore_not_found": ("(không tồn tại)", "(does not exist)"),
+    "lore_pick_topic": (
+        "🧿 Hãy chọn chủ đề lời thoại:",
+        "🧿 Choose a dialogue topic:"
+    ),
+    "btn_add_lore": ("➕ Thêm câu mới", "➕ Add new line"),
+    "btn_edit_lore": ("✏️ Sửa", "✏️ Edit"),
+    "btn_delete_lore": ("🗑 Xoá", "🗑 Delete"),
+    "btn_back_list": ("◀ Quay lại danh sách", "◀ Back to list"),
+    "lore_select_placeholder": ("Chọn câu admin để sửa / xoá...", "Select an admin line to edit / delete..."),
+    "lore_select_none": ("(Chưa có câu admin nào)", "(No admin lines yet)"),
+    # Monsters
+    "monsters_title": (
+        "🐉 **Quản lý quái vật**\n\n"
+        "Hãy chọn cấp độ quái cần xem / chỉnh sửa / thêm mới:",
+        "🐉 **Manage Monsters**\n\n"
+        "Choose the monster tier to view / edit / add:"
+    ),
+    "monster_list_title": (
+        "🐉 **Quái cấp {level}** — {label}\n\n{body}\n\n"
+        "_Chọn một quái trong menu để sửa / xoá, hoặc bấm **➕ Thêm quái mới**._",
+        "🐉 **Tier {level} Monsters** — {label}\n\n{body}\n\n"
+        "_Select a monster from the menu to edit / delete, or press **➕ Add new monster**._"
+    ),
+    "monster_none": ("_(Chưa có quái nào ở cấp này.)_", "_(No monsters at this tier.)_"),
+    "monster_select_placeholder": ("Chọn quái để sửa / xoá...", "Select a monster to edit / delete..."),
+    "monster_select_none": ("(Chưa có quái nào)", "(No monsters yet)"),
+    "btn_add_monster": ("➕ Thêm quái mới", "➕ Add new monster"),
+    "btn_back_tier": ("◀ Quay lại chọn cấp", "◀ Back to tier selection"),
+    "btn_edit_monster": ("✏️ Sửa", "✏️ Edit"),
+    "btn_delete_monster": ("🗑 Xoá", "🗑 Delete"),
+    "monster_detail": (
+        "🐉 **{emoji} {name}** _(Cấp {level})_\n\n"
+        "🛡 Tank: **{tank}**\n🗡 DPS: **{dps}**\n💊 HP: **{hp}**",
+        "🐉 **{emoji} {name}** _(Level {level})_\n\n"
+        "🛡 Tank: **{tank}**\n🗡 DPS: **{dps}**\n💊 HP: **{hp}**"
+    ),
+    "monster_invalid_level": (
+        "💀 Cấp phải là 1-5 hoặc I-V.",
+        "💀 Level must be 1-5 or I-V."
+    ),
+    # Edit / Reset player
+    "edit_player_title": (
+        "✏️ Chỉnh sửa chỉ số người chơi",
+        "✏️ Edit Player Stats"
+    ),
+    "edit_uid_label": ("User ID hoặc @mention", "User ID or @mention"),
+    "edit_tank_label": ("🛡 Tank", "🛡 Tank"),
+    "edit_dps_label": ("🗡 DPS", "🗡 DPS"),
+    "edit_health_label": ("💊 Health", "💊 Health"),
+    "edit_wins_label": ("⚔️ Số trận thắng", "⚔️ Win count"),
+    "edit_bad_user": ("💀 Không hiểu user.", "💀 Cannot parse that user."),
+    "edit_bad_stats": ("💀 Chỉ số phải là số.", "💀 Stats must be numbers."),
+    "edit_success": (
+        "✅ Đã cập nhật <@{uid}>: 🛡{tank} 🗡{dps} 💊{health} ⚔️{wins} | Hạng **{rank}**",
+        "✅ Updated <@{uid}>: 🛡{tank} 🗡{dps} 💊{health} ⚔️{wins} | Rank **{rank}**"
+    ),
+    "reset_player_title": ("🗑 Reset người chơi", "🗑 Reset Player"),
+    "reset_uid_label": ("User ID hoặc @mention", "User ID or @mention"),
+    "reset_bad_user": ("💀 Không hiểu user.", "💀 Cannot parse that user."),
+    "reset_success": ("🗑 Đã reset dữ liệu của <@{uid}>.", "🗑 Data for <@{uid}> has been reset."),
+    "reset_not_found": ("Không tìm thấy người chơi này.", "Player not found."),
+    # Reset server
+    "reset_server_warn": (
+        "☢️ **CẢNH BÁO** — Hành động này sẽ xoá toàn bộ chỉ số của mọi người chơi trong server.\n"
+        "Ngươi có chắc chắn?",
+        "☢️ **WARNING** — This action will erase all player data in this server.\n"
+        "Are you absolutely sure?"
+    ),
+    "btn_confirm_reset": ("☢️ Xác nhận reset toàn bộ", "☢️ Confirm full reset"),
+    "btn_cancel": ("❌ Huỷ", "❌ Cancel"),
+    "reset_server_done": (
+        "☢️ Toàn bộ chỉ số người chơi trong server đã bị xoá.",
+        "☢️ All player data in this server has been erased."
+    ),
+}
+
+
+def ta(guild_id: int | None, user_id: int | None, key: str, **fmt) -> str:
+    """Admin i18n helper — same pattern as t() in core."""
+    locale = get_locale(guild_id, user_id) if guild_id else "vi"
+    vi, en = TR_ADMIN.get(key, (key, key))
+    s = en if locale == "en" else vi
+    if fmt:
+        try:
+            s = s.format(**fmt)
+        except Exception:
+            pass
+    return s
 
 
 def is_admin(member: discord.Member) -> bool:
@@ -31,62 +203,60 @@ class AdminView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=300)
         self.user = user
+        gid = getattr(user, "guild", None)
+        gid = None  # guild_id resolved at interaction time
+
+    def _gid(self, interaction):
+        return getattr(interaction, "guild_id", None)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="🏷 Thiết lập role thưởng theo hạng", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🏷 Thiết lập role / Set Reward Roles", style=discord.ButtonStyle.primary, row=0)
     async def roles(self, interaction, button):
+        gid = interaction.guild_id
         await interaction.response.edit_message(
-            embed=knight_embed("Hãy chọn hạng cần gắn role thưởng:"),
+            embed=knight_embed(ta(gid, self.user.id, "roles_pick")),
             view=RankRoleSelectView(self.user),
         )
 
-    @discord.ui.button(label="🧿 Quản lý Lore trò chuyện", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🧿 Lore / Chat Lore", style=discord.ButtonStyle.primary, row=0)
     async def lore(self, interaction, button):
+        gid = interaction.guild_id
         await interaction.response.edit_message(
-            embed=knight_embed(
-                "🧿 **Quản lý Lore trò chuyện**\n\n"
-                "Câu mặc định luôn nằm trong pool hiển thị ngẫu nhiên cùng các câu do admin nhập.\n\n"
-                "Hãy chọn chủ đề lời thoại của Hiệp Sĩ Hắc Ám mà ngươi muốn quản lý:"
-            ),
+            embed=knight_embed(ta(gid, self.user.id, "lore_title")),
             view=LoreTopicView(self.user),
         )
 
-    @discord.ui.button(label="🐉 Quản lý quái vật", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="🐉 Quái vật / Monsters", style=discord.ButtonStyle.primary, row=1)
     async def monsters(self, interaction, button):
+        gid = interaction.guild_id
         await interaction.response.edit_message(
-            embed=knight_embed(
-                "🐉 **Quản lý quái vật**\n\n"
-                "Hãy chọn cấp độ quái cần xem / chỉnh sửa / thêm mới:"
-            ),
+            embed=knight_embed(ta(gid, self.user.id, "monsters_title")),
             view=MonsterLevelView(self.user),
         )
 
-    # ─── Hàng nguy hiểm: 3 nút màu đỏ ───
-    @discord.ui.button(label="✏️ Chỉnh sửa data người chơi", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="✏️ Sửa người chơi / Edit Player", style=discord.ButtonStyle.danger, row=2)
     async def edit(self, interaction, button):
-        await interaction.response.send_modal(EditPlayerModal(self.user))
+        await interaction.response.send_modal(EditPlayerModal(self.user, interaction.guild_id))
 
-    @discord.ui.button(label="🗑 Reset người chơi về mặc định (5-5-5)", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="🗑 Reset người chơi / Reset Player", style=discord.ButtonStyle.danger, row=2)
     async def delete(self, interaction, button):
-        await interaction.response.send_modal(DeletePlayerModal(self.user))
+        await interaction.response.send_modal(DeletePlayerModal(self.user, interaction.guild_id))
 
-    @discord.ui.button(label="☢️ Reset toàn server", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="☢️ Reset server / Reset Server", style=discord.ButtonStyle.danger, row=2)
     async def reset(self, interaction, button):
+        gid = interaction.guild_id
         await interaction.response.edit_message(
-            embed=knight_embed(
-                "☢️ **CẢNH BÁO** — Hành động này sẽ xoá toàn bộ chỉ số của mọi người chơi trong server.\n"
-                "Ngươi có chắc chắn?"
-            ),
+            embed=knight_embed(ta(gid, self.user.id, "reset_server_warn")),
             view=ResetConfirmView(self.user),
         )
 
-    @discord.ui.button(label="🗿 Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="🗿 Lobby / Back to Lobby", style=discord.ButtonStyle.secondary, row=3)
     async def lobby(self, interaction, button):
         await go_lobby(interaction, self.user)
 
-    @discord.ui.button(label="🚪 Thoát", style=discord.ButtonStyle.danger, row=3)
+    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=3)
     async def exit(self, interaction, button):
         await exit_bot(interaction)
 
@@ -96,31 +266,90 @@ class RankRoleSelectView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=300)
         self.user = user
-        for rk in RANKS:
-            btn = discord.ui.Button(label=f"Hạng {rk}", style=discord.ButtonStyle.secondary)
 
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
+
+    async def _build_buttons(self, interaction):
+        # Clear and rebuild with locale so labels reflect current language
+        # (called in interaction_check context, not __init__ — locale available)
+        pass
+
+    async def on_check_failure(self, interaction):
+        pass
+
+    async def _fill(self, interaction):
+        gid = interaction.guild_id
+        for rk in RANKS:
+            rank_name = RANK_INFO[rk]["name_en"] if get_locale(gid, self.user.id) == "en" else RANK_INFO[rk]["name"]
+            btn = discord.ui.Button(
+                label=f"{'Rank' if get_locale(gid, self.user.id) == 'en' else 'Hạng'} {rk}",
+                style=discord.ButtonStyle.secondary,
+            )
             async def cb(interaction, r=rk):
+                locale = get_locale(interaction.guild_id, self.user.id)
+                rn = RANK_INFO[r]["name_en"] if locale == "en" else RANK_INFO[r]["name"]
                 await interaction.response.edit_message(
-                    embed=knight_embed(
-                        f"Hãy chọn role để gắn cho hạng **{r}** ({RANK_INFO[r]['name']}):"
-                    ),
+                    embed=knight_embed(ta(interaction.guild_id, self.user.id, "roles_pick_role", rk=r, rank_name=rn)),
                     view=RolePickerView(self.user, r),
                 )
-
             btn.callback = cb
             self.add_item(btn)
 
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=4)
+        back = discord.ui.Button(
+            label="◀ Back" if get_locale(gid, self.user.id) == "en" else "◀ Quay lại",
+            style=discord.ButtonStyle.secondary, row=4,
+        )
         async def back_cb(interaction):
             await interaction.response.edit_message(
-                embed=knight_embed("**Bảng quản trị**"),
+                embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
                 view=AdminView(self.user),
             )
         back.callback = back_cb
         self.add_item(back)
 
-    async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
+    @classmethod
+    async def create(cls, user, interaction):
+        v = cls(user)
+        await v._fill(interaction)
+        return v
+
+
+async def show_rank_role_select(interaction, user):
+    gid = interaction.guild_id
+    locale = get_locale(gid, user.id)
+    view = RankRoleSelectView(user)
+    for rk in RANKS:
+        rn = RANK_INFO[rk]["name_en"] if locale == "en" else RANK_INFO[rk]["name"]
+        btn = discord.ui.Button(
+            label=f"{'Rank' if locale == 'en' else 'Hạng'} {rk}",
+            style=discord.ButtonStyle.secondary,
+        )
+        async def cb(interaction, r=rk):
+            loc2 = get_locale(interaction.guild_id, user.id)
+            rn2 = RANK_INFO[r]["name_en"] if loc2 == "en" else RANK_INFO[r]["name"]
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(interaction.guild_id, user.id, "roles_pick_role", rk=r, rank_name=rn2)),
+                view=RolePickerView(user, r),
+            )
+        btn.callback = cb
+        view.add_item(btn)
+
+    back = discord.ui.Button(
+        label="◀ Back" if locale == "en" else "◀ Quay lại",
+        style=discord.ButtonStyle.secondary, row=4,
+    )
+    async def back_cb(interaction):
+        await interaction.response.edit_message(
+            embed=knight_embed(ta(interaction.guild_id, user.id, "admin_title")),
+            view=AdminView(user),
+        )
+    back.callback = back_cb
+    view.add_item(back)
+    await interaction.response.edit_message(
+        embed=knight_embed(ta(gid, user.id, "roles_pick")),
+        view=view,
+    )
 
 
 class RolePickerView(discord.ui.View):
@@ -129,35 +358,52 @@ class RolePickerView(discord.ui.View):
         self.user = user
         self.rank = rank
         self.add_item(RoleSelect(rank))
-        clear = discord.ui.Button(label="❌ Xoá role hiện tại", style=discord.ButtonStyle.danger, row=1)
 
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
+
+    async def _setup_buttons(self, interaction):
+        gid = interaction.guild_id
+        clear = discord.ui.Button(
+            label=ta(gid, self.user.id, "btn_clear_role"),
+            style=discord.ButtonStyle.danger, row=1,
+        )
         async def clear_cb(interaction):
             g = get_guild(interaction.guild_id)
-            g["config"]["rank_roles"].pop(rank, None)
+            g["config"]["rank_roles"].pop(self.rank, None)
             persist()
             await interaction.response.edit_message(
-                embed=knight_embed(f"Đã xoá role thưởng cho hạng **{rank}**."),
+                embed=knight_embed(ta(interaction.guild_id, self.user.id, "role_cleared", rk=self.rank)),
                 view=AdminView(self.user),
             )
         clear.callback = clear_cb
         self.add_item(clear)
 
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=1)
+        back = discord.ui.Button(
+            label="◀ Back" if get_locale(gid, self.user.id) == "en" else "◀ Quay lại",
+            style=discord.ButtonStyle.secondary, row=1,
+        )
         async def back_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed("Hãy chọn hạng cần gắn role thưởng:"),
-                view=RankRoleSelectView(self.user),
-            )
+            await show_rank_role_select(interaction, self.user)
         back.callback = back_cb
         self.add_item(back)
 
-    async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
+
+async def show_role_picker(interaction, user, rank):
+    view = RolePickerView(user, rank)
+    await view._setup_buttons(interaction)
+    gid = interaction.guild_id
+    locale = get_locale(gid, user.id)
+    rn = RANK_INFO[rank]["name_en"] if locale == "en" else RANK_INFO[rank]["name"]
+    await interaction.response.edit_message(
+        embed=knight_embed(ta(gid, user.id, "roles_pick_role", rk=rank, rank_name=rn)),
+        view=view,
+    )
 
 
 class RoleSelect(discord.ui.RoleSelect):
     def __init__(self, rank):
-        super().__init__(placeholder="Chọn role...", min_values=1, max_values=1, row=0)
+        super().__init__(placeholder="Select a role… / Chọn role…", min_values=1, max_values=1, row=0)
         self.rank = rank
 
     async def callback(self, interaction):
@@ -167,67 +413,94 @@ class RoleSelect(discord.ui.RoleSelect):
         persist()
         await interaction.response.edit_message(
             embed=knight_embed(
-                f"✅ Đã gắn role {role.mention} làm phần thưởng khi người chơi đạt hạng **{self.rank}**."
+                ta(interaction.guild_id, interaction.user.id, "role_assigned",
+                   role_mention=role.mention, rk=self.rank)
             ),
             view=AdminView(interaction.user),
         )
 
 
 # ============== EDIT / RESET PLAYER ==============
-class EditPlayerModal(discord.ui.Modal, title="✏️ Chỉnh sửa chỉ số người chơi"):
-    def __init__(self, user):
-        super().__init__()
+class EditPlayerModal(discord.ui.Modal):
+    def __init__(self, user, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "✏️ Edit Player Stats" if locale == "en" else "✏️ Chỉnh sửa chỉ số người chơi"
+        super().__init__(title=title)
         self.user = user
-        self.uid = discord.ui.TextInput(label="User ID hoặc @mention", required=True)
+        self.guild_id = guild_id
+        self.uid = discord.ui.TextInput(
+            label="User ID / @mention",
+            required=True,
+        )
         self.tank = discord.ui.TextInput(label="🛡 Tank", required=True)
         self.dps = discord.ui.TextInput(label="🗡 DPS", required=True)
         self.health = discord.ui.TextInput(label="💊 Health", required=True)
-        self.wins = discord.ui.TextInput(label="⚔️ Số trận thắng", required=True)
+        self.wins = discord.ui.TextInput(
+            label="⚔️ Win count" if locale == "en" else "⚔️ Số trận thắng",
+            required=True,
+        )
         for i in (self.uid, self.tank, self.dps, self.health, self.wins):
             self.add_item(i)
 
     async def on_submit(self, interaction):
         target_id = parse_user_id(self.uid.value)
+        gid = interaction.guild_id
+        uid = self.user.id
         if not target_id:
-            await interaction.response.send_message(embed=knight_embed("💀 Không hiểu user."), ephemeral=True)
+            await interaction.response.send_message(
+                embed=knight_embed(ta(gid, uid, "edit_bad_user")), ephemeral=True
+            )
             return
         try:
-            t_, d_, h_, w_ = int(self.tank.value), int(self.dps.value), int(self.health.value), int(self.wins.value)
+            t_, d_, h_, w_ = (
+                int(self.tank.value), int(self.dps.value),
+                int(self.health.value), int(self.wins.value),
+            )
         except ValueError:
-            await interaction.response.send_message(embed=knight_embed("💀 Chỉ số phải là số."), ephemeral=True)
+            await interaction.response.send_message(
+                embed=knight_embed(ta(gid, uid, "edit_bad_stats")), ephemeral=True
+            )
             return
-        p = get_player(interaction.guild_id, target_id)
+        p = get_player(gid, target_id)
         p["tank"], p["dps"], p["health"], p["wins"] = t_, d_, h_, w_
         p["rank"] = compute_rank(p)
         persist()
         await interaction.response.send_message(
-            embed=knight_embed(f"✅ Đã cập nhật <@{target_id}>: 🛡{t_} 🗡{d_} 💊{h_} ⚔️{w_} | Hạng **{p['rank']}**"),
+            embed=knight_embed(ta(gid, uid, "edit_success",
+                                  uid=target_id, tank=t_, dps=d_, health=h_, wins=w_, rank=p["rank"])),
             ephemeral=True,
         )
 
 
-class DeletePlayerModal(discord.ui.Modal, title="🗑 Reset người chơi"):
-    def __init__(self, user):
-        super().__init__()
+class DeletePlayerModal(discord.ui.Modal):
+    def __init__(self, user, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "🗑 Reset Player" if locale == "en" else "🗑 Reset người chơi"
+        super().__init__(title=title)
         self.user = user
-        self.uid = discord.ui.TextInput(label="User ID hoặc @mention", required=True)
+        self.guild_id = guild_id
+        self.uid = discord.ui.TextInput(label="User ID / @mention", required=True)
         self.add_item(self.uid)
 
     async def on_submit(self, interaction):
         target_id = parse_user_id(self.uid.value)
+        gid = interaction.guild_id
+        uid = self.user.id
         if not target_id:
-            await interaction.response.send_message(embed=knight_embed("💀 Không hiểu user."), ephemeral=True)
+            await interaction.response.send_message(
+                embed=knight_embed(ta(gid, uid, "reset_bad_user")), ephemeral=True
+            )
             return
-        g = get_guild(interaction.guild_id)
+        g = get_guild(gid)
         if str(target_id) in g["players"]:
             del g["players"][str(target_id)]
             persist()
             await interaction.response.send_message(
-                embed=knight_embed(f"🗑 Đã reset dữ liệu của <@{target_id}>."), ephemeral=True
+                embed=knight_embed(ta(gid, uid, "reset_success", uid=target_id)), ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                embed=knight_embed("Không tìm thấy người chơi này."), ephemeral=True
+                embed=knight_embed(ta(gid, uid, "reset_not_found")), ephemeral=True
             )
 
 
@@ -239,39 +512,54 @@ class ResetConfirmView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="☢️ Xác nhận reset toàn bộ", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="☢️ Xác nhận / Confirm Reset", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction, button):
         g = get_guild(interaction.guild_id)
         g["players"] = {}
         persist()
         await interaction.response.edit_message(
-            embed=knight_embed("☢️ Toàn bộ chỉ số người chơi trong server đã bị xoá."),
+            embed=knight_embed(ta(interaction.guild_id, self.user.id, "reset_server_done")),
             view=AdminView(self.user),
         )
 
-    @discord.ui.button(label="❌ Huỷ", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="❌ Huỷ / Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button):
         await interaction.response.edit_message(
-            embed=knight_embed("**Bảng quản trị**"),
+            embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
             view=AdminView(self.user),
         )
 
 
 # ============== LORE MANAGEMENT ==============
 LORE_TOPICS = {
-    "intro": "🌅 Lời chào mở đầu",
-    "outro": "🌒 Lời chào kết thúc",
-    "arena": "🏛 Về đấu trường này",
-    "self": "🌑 Về bản thân ngài",
+    "intro": ("🌅 Lời chào mở đầu", "🌅 Opening Greeting"),
+    "outro": ("🌒 Lời chào kết thúc", "🌒 Farewell Greeting"),
+    "arena": ("🏛 Về đấu trường này", "🏛 About this arena"),
+    "self": ("🌑 Về bản thân ngài", "🌑 About yourself"),
 }
 
 
-def _format_lore_list(g, topic: str) -> str:
+def _lore_topic_label(topic: str, locale: str = "vi") -> str:
+    vi, en = LORE_TOPICS.get(topic, (topic, topic))
+    return en if locale == "en" else vi
+
+
+def _format_lore_list(g, topic: str, locale: str = "vi") -> str:
     msgs = g["lore"][topic]["messages"]
     default = DEFAULT_LORE[topic]
-    lines = [f"🔒 **(Mặc định, không thể sửa/xoá)** — {default[:120]}{'…' if len(default) > 120 else ''}"]
+    default_preview = default[:120] + ("…" if len(default) > 120 else "")
+    locked_label = (
+        "🔒 **(Default — cannot be edited or deleted)** — " if locale == "en"
+        else "🔒 **(Mặc định, không thể sửa/xoá)** — "
+    )
+    lines = [f"{locked_label}{default_preview}"]
     if not msgs:
-        lines.append("\n_Chưa có câu nào do admin nhập. Pool hiện tại chỉ gồm câu mặc định._")
+        no_admin = (
+            "\n_No admin-entered lines yet. The current pool contains only the default._"
+            if locale == "en"
+            else "\n_Chưa có câu nào do admin nhập. Pool hiện tại chỉ gồm câu mặc định._"
+        )
+        lines.append(no_admin)
     else:
         for i, m in enumerate(msgs):
             preview = m if len(m) <= 120 else m[:117] + "…"
@@ -283,42 +571,57 @@ class LoreTopicView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=300)
         self.user = user
-        for topic, label in LORE_TOPICS.items():
-            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, row=0)
-
-            async def cb(interaction, t_=topic):
-                await show_lore_list(interaction, self.user, t_)
-
-            btn.callback = cb
-            self.add_item(btn)
-
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=1)
-
-        async def back_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed("🛡️ **Bảng quản trị**"),
-                view=AdminView(self.user),
-            )
-
-        back.callback = back_cb
-        self.add_item(back)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
+    async def setup(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
+        self.clear_items()
+        for topic, (vi_label, en_label) in LORE_TOPICS.items():
+            label = en_label if locale == "en" else vi_label
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, row=0)
+            async def cb(interaction, t_=topic):
+                await show_lore_list(interaction, self.user, t_)
+            btn.callback = cb
+            self.add_item(btn)
+
+        back_label = "◀ Back" if locale == "en" else "◀ Quay lại"
+        back = discord.ui.Button(label=back_label, style=discord.ButtonStyle.secondary, row=1)
+        async def back_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
+                view=AdminView(self.user),
+            )
+        back.callback = back_cb
+        self.add_item(back)
+
+
+async def show_lore_topic_view(interaction, user):
+    view = LoreTopicView(user)
+    await view.setup(interaction)
+    await interaction.response.edit_message(
+        embed=knight_embed(ta(interaction.guild_id, user.id, "lore_title")),
+        view=view,
+    )
+
 
 class LoreSelect(discord.ui.Select):
-    def __init__(self, topic: str, guild_data):
+    def __init__(self, topic: str, guild_data, locale: str = "vi"):
         self.topic = topic
+        self.locale = locale
         msgs = guild_data["lore"][topic]["messages"]
         options = []
         for i, m in enumerate(msgs):
             preview = m if len(m) <= 90 else m[:87] + "…"
             options.append(discord.SelectOption(label=f"#{i+1}: {preview}", value=str(i)))
         if not options:
-            options = [discord.SelectOption(label="(Chưa có câu admin nào)", value="-1")]
+            none_label = "(No admin lines yet)" if locale == "en" else "(Chưa có câu admin nào)"
+            options = [discord.SelectOption(label=none_label, value="-1")]
+        placeholder = "Select a line to edit / delete…" if locale == "en" else "Chọn câu admin để sửa / xoá..."
         super().__init__(
-            placeholder="Chọn câu admin để sửa / xoá...",
+            placeholder=placeholder,
             min_values=1, max_values=1, row=0, options=options,
         )
         if options[0].value == "-1":
@@ -331,9 +634,11 @@ class LoreSelect(discord.ui.Select):
             return
         g = get_guild(interaction.guild_id)
         msgs = g["lore"][self.topic]["messages"]
-        text = msgs[idx] if 0 <= idx < len(msgs) else "(không tồn tại)"
+        text = msgs[idx] if 0 <= idx < len(msgs) else ("(does not exist)" if self.locale == "en" else "(không tồn tại)")
+        locale = get_locale(interaction.guild_id, interaction.user.id)
+        topic_label = _lore_topic_label(self.topic, locale)
         embed = knight_embed(
-            f"🧿 **Lore — {LORE_TOPICS[self.topic]} — câu admin #{idx+1}**\n\n{text}"
+            f"🧿 **Lore — {topic_label} — {'admin line' if locale == 'en' else 'câu admin'} #{idx+1}**\n\n{text}"
         )
         await interaction.response.edit_message(
             embed=embed,
@@ -342,24 +647,23 @@ class LoreSelect(discord.ui.Select):
 
 
 class LoreManageView(discord.ui.View):
-    def __init__(self, user, topic, guild_data):
+    def __init__(self, user, topic, guild_data, locale: str = "vi"):
         super().__init__(timeout=300)
         self.user = user
         self.topic = topic
-        self.add_item(LoreSelect(topic, guild_data))
+        self.add_item(LoreSelect(topic, guild_data, locale))
 
-        add_btn = discord.ui.Button(label="➕ Thêm câu mới", style=discord.ButtonStyle.success, row=1)
+        add_label = "➕ Add new line" if locale == "en" else "➕ Thêm câu mới"
+        add_btn = discord.ui.Button(label=add_label, style=discord.ButtonStyle.success, row=1)
         async def add_cb(interaction):
-            await interaction.response.send_modal(LoreAddModal(self.user, self.topic))
+            await interaction.response.send_modal(LoreAddModal(self.user, self.topic, interaction.guild_id))
         add_btn.callback = add_cb
         self.add_item(add_btn)
 
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=2)
+        back_label = "◀ Back" if locale == "en" else "◀ Quay lại"
+        back = discord.ui.Button(label=back_label, style=discord.ButtonStyle.secondary, row=2)
         async def back_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed("🧿 Hãy chọn chủ đề lời thoại:"),
-                view=LoreTopicView(self.user),
-            )
+            await show_lore_topic_view(interaction, self.user)
         back.callback = back_cb
         self.add_item(back)
 
@@ -368,14 +672,21 @@ class LoreManageView(discord.ui.View):
 
 
 async def show_lore_list(interaction, user, topic: str):
-    g = get_guild(interaction.guild_id)
-    embed = knight_embed(
-        f"🧿 **Lore — {LORE_TOPICS[topic]}**\n\n"
-        f"{_format_lore_list(g, topic)}\n\n"
-        "_Bot sẽ chọn ngẫu nhiên một câu trong pool (gồm câu mặc định + tất cả câu admin nhập) "
-        "khi user hỏi chủ đề này._"
+    gid = interaction.guild_id
+    locale = get_locale(gid, user.id)
+    g = get_guild(gid)
+    topic_label = _lore_topic_label(topic, locale)
+    bot_note = (
+        "_The bot will randomly pick from the pool (default + all admin lines) when a user asks about this topic._"
+        if locale == "en"
+        else "_Bot sẽ chọn ngẫu nhiên một câu trong pool (gồm câu mặc định + tất cả câu admin nhập) khi user hỏi chủ đề này._"
     )
-    await interaction.response.edit_message(embed=embed, view=LoreManageView(user, topic, g))
+    embed = knight_embed(
+        f"🧿 **Lore — {topic_label}**\n\n"
+        f"{_format_lore_list(g, topic, locale)}\n\n"
+        f"{bot_note}"
+    )
+    await interaction.response.edit_message(embed=embed, view=LoreManageView(user, topic, g, locale))
 
 
 class LoreItemActionView(discord.ui.View):
@@ -388,14 +699,16 @@ class LoreItemActionView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="✏️ Sửa", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="✏️ Sửa / Edit", style=discord.ButtonStyle.primary, row=0)
     async def edit(self, interaction, button):
         g = get_guild(interaction.guild_id)
         msgs = g["lore"][self.topic]["messages"]
         current = msgs[self.idx] if 0 <= self.idx < len(msgs) else ""
-        await interaction.response.send_modal(LoreEditModal(self.user, self.topic, self.idx, current))
+        await interaction.response.send_modal(
+            LoreEditModal(self.user, self.topic, self.idx, current, interaction.guild_id)
+        )
 
-    @discord.ui.button(label="🗑 Xoá", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🗑 Xoá / Delete", style=discord.ButtonStyle.danger, row=0)
     async def delete(self, interaction, button):
         g = get_guild(interaction.guild_id)
         msgs = g["lore"][self.topic]["messages"]
@@ -404,18 +717,21 @@ class LoreItemActionView(discord.ui.View):
             persist()
         await show_lore_list(interaction, self.user, self.topic)
 
-    @discord.ui.button(label="◀ Quay lại danh sách", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="◀ Quay lại / Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction, button):
         await show_lore_list(interaction, self.user, self.topic)
 
 
-class LoreAddModal(discord.ui.Modal, title="➕ Thêm câu lore mới"):
-    def __init__(self, user, topic):
-        super().__init__()
+class LoreAddModal(discord.ui.Modal):
+    def __init__(self, user, topic, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "➕ Add new lore line" if locale == "en" else "➕ Thêm câu lore mới"
+        super().__init__(title=title)
         self.user = user
         self.topic = topic
+        label = "Dialogue text (max 2000 characters)" if locale == "en" else "Nội dung lời thoại (tối đa 2000 ký tự)"
         self.text = discord.ui.TextInput(
-            label="Nội dung lời thoại (tối đa 2000 ký tự)",
+            label=label,
             style=discord.TextStyle.paragraph,
             required=True,
             max_length=2000,
@@ -429,14 +745,17 @@ class LoreAddModal(discord.ui.Modal, title="➕ Thêm câu lore mới"):
         await show_lore_list(interaction, self.user, self.topic)
 
 
-class LoreEditModal(discord.ui.Modal, title="✏️ Sửa câu lore"):
-    def __init__(self, user, topic, idx, current_text: str):
-        super().__init__()
+class LoreEditModal(discord.ui.Modal):
+    def __init__(self, user, topic, idx, current_text: str, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "✏️ Edit lore line" if locale == "en" else "✏️ Sửa câu lore"
+        super().__init__(title=title)
         self.user = user
         self.topic = topic
         self.idx = idx
+        label = "Dialogue text (max 2000 characters)" if locale == "en" else "Nội dung lời thoại (tối đa 2000 ký tự)"
         self.text = discord.ui.TextInput(
-            label="Nội dung lời thoại (tối đa 2000 ký tự)",
+            label=label,
             style=discord.TextStyle.paragraph,
             required=True,
             max_length=2000,
@@ -455,14 +774,23 @@ class LoreEditModal(discord.ui.Modal, title="✏️ Sửa câu lore"):
 
 # ============== MONSTER MANAGEMENT ==============
 LEVEL_LABELS_ADMIN = {
-    1: "🪨 Cấp I", 2: "🌲 Cấp II", 3: "🔥 Cấp III", 4: "🌑 Cấp IV", 5: "👑 Cấp V",
+    1: ("🪨 Cấp I", "🪨 Tier I"),
+    2: ("🌲 Cấp II", "🌲 Tier II"),
+    3: ("🔥 Cấp III", "🔥 Tier III"),
+    4: ("🌑 Cấp IV", "🌑 Tier IV"),
+    5: ("👑 Cấp V", "👑 Tier V"),
 }
 
 
-def _format_monster_list(level: int) -> str:
+def _level_label(lv: int, locale: str = "vi") -> str:
+    vi, en = LEVEL_LABELS_ADMIN.get(lv, (str(lv), str(lv)))
+    return en if locale == "en" else vi
+
+
+def _format_monster_list(level: int, locale: str = "vi") -> str:
     monsters = get_monsters_by_level(level)
     if not monsters:
-        return "_(Chưa có quái nào ở cấp này.)_"
+        return "_(No monsters at this tier.)_" if locale == "en" else "_(Chưa có quái nào ở cấp này.)_"
     lines = []
     for m in monsters:
         lines.append(
@@ -476,47 +804,64 @@ class MonsterLevelView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=300)
         self.user = user
-        for lv in [1, 2, 3, 4, 5]:
-            btn = discord.ui.Button(
-                label=LEVEL_LABELS_ADMIN[lv],
-                style=discord.ButtonStyle.secondary,
-                row=(lv - 1) // 3,
-            )
 
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
+
+    async def setup(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
+        self.clear_items()
+        for lv in [1, 2, 3, 4, 5]:
+            label = _level_label(lv, locale)
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, row=(lv - 1) // 3)
             async def cb(interaction, lv_=lv):
                 await show_monster_list(interaction, self.user, lv_)
-
             btn.callback = cb
             self.add_item(btn)
 
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=2)
+        back_label = "◀ Back" if locale == "en" else "◀ Quay lại"
+        back = discord.ui.Button(label=back_label, style=discord.ButtonStyle.secondary, row=2)
         async def back_cb(interaction):
             await interaction.response.edit_message(
-                embed=knight_embed("**Bảng quản trị**"),
+                embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
                 view=AdminView(self.user),
             )
         back.callback = back_cb
         self.add_item(back)
 
-    async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
+
+async def show_monster_level_view(interaction, user):
+    view = MonsterLevelView(user)
+    await view.setup(interaction)
+    await interaction.response.edit_message(
+        embed=knight_embed(ta(interaction.guild_id, user.id, "monsters_title")),
+        view=view,
+    )
 
 
 async def show_monster_list(interaction, user, level: int):
+    gid = interaction.guild_id
+    locale = get_locale(gid, user.id)
+    label = _level_label(level, locale)
+    body = _format_monster_list(level, locale)
+    note = (
+        "_Select a monster from the menu to edit / delete, or press **➕ Add new monster**._"
+        if locale == "en"
+        else "_Chọn một quái trong menu để sửa / xoá, hoặc bấm **➕ Thêm quái mới**._"
+    )
+    tier_word = "Level" if locale == "en" else "Cấp"
     embed = knight_embed(
-        f"🐉 **Quái cấp {level}** — {LEVEL_LABELS_ADMIN[level]}\n\n"
-        f"{_format_monster_list(level)}\n\n"
-        "_Chọn một quái trong menu để sửa / xoá, hoặc bấm **➕ Thêm quái mới**._"
+        f"🐉 **{'Tier' if locale == 'en' else 'Quái cấp'} {level}** — {label}\n\n{body}\n\n{note}"
     )
-    await interaction.response.edit_message(
-        embed=embed, view=MonsterManageView(user, level),
-    )
+    view = MonsterManageView(user, level)
+    await view.setup(interaction)
+    await interaction.response.edit_message(embed=embed, view=view)
 
 
 class MonsterSelect(discord.ui.Select):
-    def __init__(self, level: int):
+    def __init__(self, level: int, locale: str = "vi"):
         self.level = level
-        # Build options for monsters at this level. Use absolute index in global list as value.
         options = []
         for i, m in enumerate(get_monsters()):
             if int(m.get("level", 0)) != level:
@@ -525,13 +870,16 @@ class MonsterSelect(discord.ui.Select):
             desc = f"🛡{m.get('tank',0)} 🗡{m.get('dps',0)} 💊{m.get('hp',0)}"[:100]
             options.append(discord.SelectOption(label=label, value=str(i), description=desc))
         if not options:
-            options = [discord.SelectOption(label="(Chưa có quái nào)", value="-1")]
+            none_label = "(No monsters yet)" if locale == "en" else "(Chưa có quái nào)"
+            options = [discord.SelectOption(label=none_label, value="-1")]
+        placeholder = "Select a monster to edit / delete…" if locale == "en" else "Chọn quái để sửa / xoá..."
         super().__init__(
-            placeholder="Chọn quái để sửa / xoá...",
+            placeholder=placeholder,
             min_values=1, max_values=1, row=0, options=options,
         )
         if options[0].value == "-1":
             self.disabled = True
+        self._locale = locale
 
     async def callback(self, interaction):
         idx = int(self.values[0])
@@ -543,8 +891,10 @@ class MonsterSelect(discord.ui.Select):
             await interaction.response.defer()
             return
         m = monsters[idx]
+        locale = get_locale(interaction.guild_id, interaction.user.id)
+        level_word = "Level" if locale == "en" else "Cấp"
         embed = knight_embed(
-            f"🐉 **{m.get('emoji','❓')} {m.get('name','?')}** _(Cấp {m.get('level','?')})_\n\n"
+            f"🐉 **{m.get('emoji','❓')} {m.get('name','?')}** _({level_word} {m.get('level','?')})_\n\n"
             f"🛡 Tank: **{m.get('tank',0)}**\n"
             f"🗡 DPS: **{m.get('dps',0)}**\n"
             f"💊 HP: **{m.get('hp',0)}**"
@@ -560,31 +910,29 @@ class MonsterManageView(discord.ui.View):
         super().__init__(timeout=300)
         self.user = user
         self.level = level
-        self.add_item(MonsterSelect(level))
-
-        add_btn = discord.ui.Button(
-            label="➕ Thêm quái mới",
-            style=discord.ButtonStyle.success, row=1,
-        )
-        async def add_cb(interaction):
-            await interaction.response.send_modal(MonsterAddModal(self.user, self.level))
-        add_btn.callback = add_cb
-        self.add_item(add_btn)
-
-        back = discord.ui.Button(label="◀ Quay lại chọn cấp", style=discord.ButtonStyle.secondary, row=2)
-        async def back_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed(
-                    "🐉 **Quản lý quái vật**\n\n"
-                    "Hãy chọn cấp độ quái cần xem / chỉnh sửa / thêm mới:"
-                ),
-                view=MonsterLevelView(self.user),
-            )
-        back.callback = back_cb
-        self.add_item(back)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
+
+    async def setup(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
+        self.clear_items()
+        self.add_item(MonsterSelect(self.level, locale))
+
+        add_label = "➕ Add new monster" if locale == "en" else "➕ Thêm quái mới"
+        add_btn = discord.ui.Button(label=add_label, style=discord.ButtonStyle.success, row=1)
+        async def add_cb(interaction):
+            await interaction.response.send_modal(MonsterAddModal(self.user, self.level, interaction.guild_id))
+        add_btn.callback = add_cb
+        self.add_item(add_btn)
+
+        back_label = "◀ Back to tier selection" if locale == "en" else "◀ Quay lại chọn cấp"
+        back = discord.ui.Button(label=back_label, style=discord.ButtonStyle.secondary, row=2)
+        async def back_cb(interaction):
+            await show_monster_level_view(interaction, self.user)
+        back.callback = back_cb
+        self.add_item(back)
 
 
 class MonsterItemView(discord.ui.View):
@@ -597,20 +945,22 @@ class MonsterItemView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="✏️ Sửa", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="✏️ Sửa / Edit", style=discord.ButtonStyle.primary, row=0)
     async def edit(self, interaction, button):
         monsters = get_monsters()
         if not (0 <= self.idx < len(monsters)):
             await show_monster_list(interaction, self.user, self.level)
             return
-        await interaction.response.send_modal(MonsterEditModal(self.user, self.idx, self.level, monsters[self.idx]))
+        await interaction.response.send_modal(
+            MonsterEditModal(self.user, self.idx, self.level, monsters[self.idx], interaction.guild_id)
+        )
 
-    @discord.ui.button(label="🗑 Xoá", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🗑 Xoá / Delete", style=discord.ButtonStyle.danger, row=0)
     async def delete(self, interaction, button):
         delete_monster(self.idx)
         await show_monster_list(interaction, self.user, self.level)
 
-    @discord.ui.button(label="◀ Quay lại danh sách", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="◀ Quay lại / Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction, button):
         await show_monster_list(interaction, self.user, self.level)
 
@@ -636,27 +986,33 @@ def _parse_level(s: str) -> int | None:
     return None
 
 
-class MonsterAddModal(discord.ui.Modal, title="➕ Thêm quái mới"):
-    def __init__(self, user, default_level: int):
-        super().__init__()
+class MonsterAddModal(discord.ui.Modal):
+    def __init__(self, user, default_level: int, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "➕ Add new monster" if locale == "en" else "➕ Thêm quái mới"
+        super().__init__(title=title)
         self.user = user
         self.default_level = default_level
-        self.f_name = discord.ui.TextInput(label="Tên quái + emoji (vd: 🐉 Rồng Lửa)", required=True, max_length=80)
-        self.f_level = discord.ui.TextInput(label="Cấp (1-5 hoặc I-V)", required=True, max_length=4, default=str(default_level))
-        self.f_tank = discord.ui.TextInput(label="🛡 Tank (số nguyên)", required=True, max_length=8)
-        self.f_dps = discord.ui.TextInput(label="🗡 DPS (số nguyên)", required=True, max_length=8)
-        self.f_hp = discord.ui.TextInput(label="💊 HP (số nguyên)", required=True, max_length=8)
+        self.guild_id = guild_id
+        name_label = "Monster name + emoji (e.g. 🐉 Fire Dragon)" if locale == "en" else "Tên quái + emoji (vd: 🐉 Rồng Lửa)"
+        level_label = "Tier (1-5 or I-V)" if locale == "en" else "Cấp (1-5 hoặc I-V)"
+        self.f_name = discord.ui.TextInput(label=name_label, required=True, max_length=80)
+        self.f_level = discord.ui.TextInput(label=level_label, required=True, max_length=4, default=str(default_level))
+        self.f_tank = discord.ui.TextInput(label="🛡 Tank", required=True, max_length=8)
+        self.f_dps = discord.ui.TextInput(label="🗡 DPS", required=True, max_length=8)
+        self.f_hp = discord.ui.TextInput(label="💊 HP", required=True, max_length=8)
         for i in (self.f_name, self.f_level, self.f_tank, self.f_dps, self.f_hp):
             self.add_item(i)
 
     async def on_submit(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
         lv = _parse_level(self.f_level.value)
         if lv is None:
             await interaction.response.send_message(
-                embed=knight_embed("💀 Cấp phải là 1-5 hoặc I-V."), ephemeral=True,
+                embed=knight_embed(ta(gid, self.user.id, "monster_invalid_level")), ephemeral=True,
             )
             return
-        # Tách emoji ở đầu nếu có (ký tự đầu nếu nó không phải chữ cái/số ASCII).
         raw = self.f_name.value.strip()
         emoji, name = _split_emoji_name(raw)
         m = {
@@ -671,15 +1027,20 @@ class MonsterAddModal(discord.ui.Modal, title="➕ Thêm quái mới"):
         await show_monster_list(interaction, self.user, lv)
 
 
-class MonsterEditModal(discord.ui.Modal, title="✏️ Sửa quái"):
-    def __init__(self, user, idx: int, level: int, current: dict):
-        super().__init__()
+class MonsterEditModal(discord.ui.Modal):
+    def __init__(self, user, idx: int, level: int, current: dict, guild_id):
+        locale = get_locale(guild_id, user.id)
+        title = "✏️ Edit monster" if locale == "en" else "✏️ Sửa quái"
+        super().__init__(title=title)
         self.user = user
         self.idx = idx
         self.level = level
+        self.guild_id = guild_id
         cur_full = f"{current.get('emoji','')} {current.get('name','')}".strip()
-        self.f_name = discord.ui.TextInput(label="Tên quái + emoji", required=True, max_length=80, default=cur_full[:80])
-        self.f_level = discord.ui.TextInput(label="Cấp (1-5 hoặc I-V)", required=True, max_length=4, default=str(current.get("level", level)))
+        name_label = "Monster name + emoji" if locale == "en" else "Tên quái + emoji"
+        level_label = "Tier (1-5 or I-V)" if locale == "en" else "Cấp (1-5 hoặc I-V)"
+        self.f_name = discord.ui.TextInput(label=name_label, required=True, max_length=80, default=cur_full[:80])
+        self.f_level = discord.ui.TextInput(label=level_label, required=True, max_length=4, default=str(current.get("level", level)))
         self.f_tank = discord.ui.TextInput(label="🛡 Tank", required=True, max_length=8, default=str(current.get("tank", 0)))
         self.f_dps = discord.ui.TextInput(label="🗡 DPS", required=True, max_length=8, default=str(current.get("dps", 0)))
         self.f_hp = discord.ui.TextInput(label="💊 HP", required=True, max_length=8, default=str(current.get("hp", 1)))
@@ -687,10 +1048,12 @@ class MonsterEditModal(discord.ui.Modal, title="✏️ Sửa quái"):
             self.add_item(i)
 
     async def on_submit(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
         lv = _parse_level(self.f_level.value)
         if lv is None:
             await interaction.response.send_message(
-                embed=knight_embed("💀 Cấp phải là 1-5 hoặc I-V."), ephemeral=True,
+                embed=knight_embed(ta(gid, self.user.id, "monster_invalid_level")), ephemeral=True,
             )
             return
         raw = self.f_name.value.strip()
@@ -708,22 +1071,16 @@ class MonsterEditModal(discord.ui.Modal, title="✏️ Sửa quái"):
 
 
 def _split_emoji_name(raw: str) -> tuple[str, str]:
-    """Tách emoji đầu chuỗi (1-2 ký tự đầu cho tới khoảng trắng) và phần còn lại là tên."""
+    """Tách emoji đầu chuỗi và phần còn lại là tên."""
     raw = raw.strip()
     if not raw:
         return ("", "")
-    # Cách dễ nhất: lấy mọi thứ trước khoảng trắng đầu tiên làm emoji,
-    # phần sau là tên. Nếu không có khoảng trắng, coi toàn bộ là tên, emoji rỗng.
     parts = raw.split(None, 1)
     if len(parts) == 1:
-        # Không có khoảng trắng: chỉ có tên hoặc chỉ có emoji.
-        # Heuristic: nếu chuỗi rất ngắn (<=4 ký tự) coi như emoji.
         if len(parts[0]) <= 4 and not parts[0][0].isascii():
             return (parts[0], "")
         return ("", parts[0])
     head, tail = parts[0], parts[1]
-    # head có vẻ là emoji nếu không bắt đầu bằng chữ ASCII bình thường
     if head and not head[0].isalnum():
         return (head, tail)
-    # Nếu head là chữ ASCII, coi cả raw là tên, emoji rỗng
     return ("", raw)
