@@ -556,9 +556,22 @@ class PotionView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def _brew(self, interaction):
-        total = sum(p["value"] for p in self.picked)
+        total = sum(pi["value"] for pi in self.picked)
         p = get_player(interaction.guild_id, self.user.id)
         rank = p.get("rank", "I")
+
+        # Difficulty mitigations:
+        # 1) If the previous brew yielded 0 potions, the next one must succeed
+        #    (guarantee at least 2 potions → bump total to 20 if still below).
+        # 2) Out of every 4 brews, at least one must hit the maximum tier.
+        #    If 3 brews in a row missed the top tier, force the 4th to hit ≥ 90.
+        forced_max = p.get("potion_since_last_max", 0) >= 3 and total < 90
+        if forced_max:
+            total = 90
+        forced_success = p.get("potion_last_zero", False) and total < 20
+        if forced_success:
+            total = 20
+
         if total < 20:
             text = (
                 f"💔 {'Total score:' if self._locale == 'en' else 'Tổng điểm:'} **{total}** — "
@@ -587,6 +600,12 @@ class PotionView(discord.ui.View):
                    else f"Ngươi chế được **5 lọ thần dược**! **+{gain} 💊 Health**")
             )
         p["health"] += gain
+        # Update potion-difficulty trackers based on the *final* outcome.
+        if total >= 90:
+            p["potion_since_last_max"] = 0
+        else:
+            p["potion_since_last_max"] = p.get("potion_since_last_max", 0) + 1
+        p["potion_last_zero"] = (total < 20)
         persist()
         bonus = training_bonus_pct(rank)
         if bonus > 0 and gain > 0:
