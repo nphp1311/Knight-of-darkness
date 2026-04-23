@@ -616,8 +616,53 @@ class PotionView(discord.ui.View):
         title = "**Potion Brewing Result**" if self._locale == "en" else "**Kết quả pha chế thần dược**"
         await interaction.response.edit_message(
             embed=knight_embed(f"{title}\n\n{text}"),
-            view=AfterTrainView(self.user, interaction.guild_id),
+            view=AfterPotionView(self.user, interaction.guild_id),
         )
+
+
+# ============== AFTER POTION ==============
+class AfterPotionView(discord.ui.View):
+    def __init__(self, user, guild_id=None):
+        super().__init__(timeout=300)
+        self.user = user
+        gid = guild_id
+        locale = get_locale(gid, user.id)
+
+        brew_again_label = "⚗️ Brew again" if locale == "en" else "⚗️ Tiếp tục bào chế"
+        brew_again = discord.ui.Button(
+            label=brew_again_label,
+            style=discord.ButtonStyle.success, row=0,
+        )
+        async def brew_again_cb(interaction):
+            loc = get_locale(interaction.guild_id, self.user.id)
+            header = (
+                "**Potion Brewing** — choose **3 ingredients**."
+                if loc == "en"
+                else "**Bào chế thần dược** — chọn **3 nguyên liệu**."
+            )
+            await interaction.response.edit_message(
+                embed=knight_embed(header),
+                view=PotionView(self.user),
+            )
+        brew_again.callback = brew_again_cb
+        self.add_item(brew_again)
+
+        train_again = discord.ui.Button(
+            label=t(gid, user.id, "btn_train_again"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def train_again_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(t(interaction.guild_id, self.user.id, "msg_choose_train")),
+                view=TrainView(self.user, interaction.guild_id),
+            )
+        train_again.callback = train_again_cb
+        self.add_item(train_again)
+
+        _add_lobby_exit(self, user, gid, row=0)
+
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
 
 
 # ============== AFTER TRAIN ==============
