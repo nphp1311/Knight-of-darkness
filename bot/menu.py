@@ -50,30 +50,25 @@ class MainView(discord.ui.View):
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.user.id:
-            locale = get_locale(interaction.guild_id, interaction.user.id)
-            msg = (
-                "Only the one who summoned me may choose."
-                if locale == "en"
-                else "Chỉ người triệu hồi ta mới có thể chọn."
+            await interaction.response.send_message(
+                t(interaction.guild_id, interaction.user.id, "msg_only_summoner"),
+                ephemeral=True,
             )
-            await interaction.response.send_message(msg, ephemeral=True)
             return False
         return True
 
     async def _train(self, interaction):
         from .training import TrainView
-        locale = get_locale(interaction.guild_id, self.user.id)
-        msg = "Choose your training:" if locale == "en" else "Hãy chọn bài tập phù hợp:"
         await interaction.response.edit_message(
-            embed=knight_embed(msg),
-            view=TrainView(self.user),
+            embed=knight_embed(t(interaction.guild_id, self.user.id, "msg_choose_train")),
+            view=TrainView(self.user, interaction.guild_id),
         )
 
     async def _challenge(self, interaction):
         from .combat import ChallengeMenuView
         await interaction.response.edit_message(
             embed=knight_embed(t(interaction.guild_id, self.user.id, "challenge_intro")),
-            view=ChallengeMenuView(self.user),
+            view=ChallengeMenuView(self.user, interaction.guild_id),
         )
 
     async def _stats(self, interaction):
@@ -84,15 +79,11 @@ class MainView(discord.ui.View):
         p["rank"] = compute_rank(p)
         unlock_achievements(p)
         persist()
-        rinfo = RANK_INFO[p["rank"]]
         rank_display = rk_name(p["rank"], locale)
         wins_label = t(gid, uid, "stats_wins")
         pvp_label = t(gid, uid, "stats_pvp_wins")
         rank_label = t(gid, uid, "stats_rank")
-        if locale == "en":
-            streak_label = "PvP streak"
-        else:
-            streak_label = "Streak PvP"
+        streak_label = "PvP streak" if locale == "en" else "Streak PvP"
         text = (
             f"**👤 {self.user.display_name}**\n\n"
             f"🏆 {rank_label}: **{rank_display}**\n"
@@ -103,61 +94,81 @@ class MainView(discord.ui.View):
         )
         await interaction.response.edit_message(
             embed=knight_embed(text),
-            view=PostInfoView(self.user),
+            view=PostInfoView(self.user, gid),
         )
 
     async def _board(self, interaction):
         await interaction.response.edit_message(
             embed=knight_embed(t(interaction.guild_id, self.user.id, "lb_pick")),
-            view=BoardPickView(self.user),
+            view=BoardPickView(self.user, interaction.guild_id),
         )
 
     async def _chat(self, interaction):
         await interaction.response.edit_message(
             embed=knight_embed(t(interaction.guild_id, self.user.id, "chat_intro")),
-            view=ChatView(self.user),
+            view=ChatView(self.user, interaction.guild_id),
         )
 
     async def _admin(self, interaction):
         from .admin import AdminView
-        locale = get_locale(interaction.guild_id, self.user.id)
-        msg = (
-            "🛡️ **Admin Panel** — for server administrators only."
-            if locale == "en"
-            else "🛡️ **Bảng quản trị (dành cho admin)** — chỉ dành cho quản trị viên server."
-        )
         await interaction.response.edit_message(
-            embed=knight_embed(msg),
-            view=AdminView(self.user),
+            embed=knight_embed(t(interaction.guild_id, self.user.id, "admin_panel_title")),
+            view=AdminView(self.user, interaction.guild_id),
         )
 
     async def _exit(self, interaction):
         await exit_bot(interaction)
 
 
+# ============== Helper: lobby + exit buttons ==============
+def _add_lobby_exit(view: discord.ui.View, user, gid, row: int = 1):
+    lobby = discord.ui.Button(
+        label=t(gid, user.id, "btn_lobby"),
+        style=discord.ButtonStyle.secondary, row=row,
+    )
+    async def lobby_cb(interaction):
+        await go_lobby(interaction, user)
+    lobby.callback = lobby_cb
+    view.add_item(lobby)
+
+    exitb = discord.ui.Button(
+        label=t(gid, user.id, "btn_exit"),
+        style=discord.ButtonStyle.danger, row=row,
+    )
+    async def exit_cb(interaction):
+        await exit_bot(interaction)
+    exitb.callback = exit_cb
+    view.add_item(exitb)
+
+
 class BoardPickView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        pve = discord.ui.Button(
+            label=t(gid, user.id, "lb_pve_btn"),
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        async def pve_cb(interaction):
+            await _show_board(interaction, self.user, "pve")
+        pve.callback = pve_cb
+        self.add_item(pve)
+
+        pvp = discord.ui.Button(
+            label=t(gid, user.id, "lb_pvp_btn"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def pvp_cb(interaction):
+            await _show_board(interaction, self.user, "pvp")
+        pvp.callback = pvp_cb
+        self.add_item(pvp)
+
+        _add_lobby_exit(self, user, gid, row=1)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🐉 Bảng Diệt Quái / Monster Slayer", style=discord.ButtonStyle.danger, row=0)
-    async def pve(self, interaction, button):
-        await _show_board(interaction, self.user, "pve")
-
-    @discord.ui.button(label="⚔️ Bảng Đấu Sĩ / Duelist Board", style=discord.ButtonStyle.primary, row=0)
-    async def pvp(self, interaction, button):
-        await _show_board(interaction, self.user, "pvp")
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=1)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=1)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 async def _show_board(interaction, user, kind: str):
@@ -180,7 +191,6 @@ async def _show_board(interaction, user, kind: str):
         lines.append(t(interaction.guild_id, user.id, "lb_empty"))
     else:
         rank_label = t(interaction.guild_id, user.id, "stats_rank")
-        locale = get_locale(interaction.guild_id, user.id)
         for i, (uid, p) in enumerate(top):
             wins_val = key((uid, p))
             rk = p.get("rank", "I")
@@ -195,111 +205,114 @@ async def _show_board(interaction, user, kind: str):
 
     await interaction.response.edit_message(
         embed=knight_embed("\n".join(lines)),
-        view=BoardAfterView(user),
+        view=BoardAfterView(user, interaction.guild_id),
     )
 
 
 class BoardAfterView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        other = discord.ui.Button(
+            label=t(gid, user.id, "btn_other_board"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def other_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(t(interaction.guild_id, self.user.id, "lb_pick")),
+                view=BoardPickView(self.user, interaction.guild_id),
+            )
+        other.callback = other_cb
+        self.add_item(other)
+
+        _add_lobby_exit(self, user, gid, row=0)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🏆 Bảng khác / Other board", style=discord.ButtonStyle.primary, row=0)
-    async def other(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(t(interaction.guild_id, self.user.id, "lb_pick")),
-            view=BoardPickView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=0)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 class PostInfoView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        _add_lobby_exit(self, user, guild_id, row=0)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=0)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 # ============== CHAT ==============
 class ChatView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        arena = discord.ui.Button(
+            label=t(gid, user.id, "btn_chat_arena"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def arena_cb(interaction):
+            locale = get_locale(interaction.guild_id, self.user.id)
+            await interaction.response.edit_message(
+                embed=knight_embed(get_lore_text(interaction.guild_id, "arena", locale=locale)),
+                view=ChatAfterView(self.user, interaction.guild_id),
+            )
+        arena.callback = arena_cb
+        self.add_item(arena)
+
+        self_btn = discord.ui.Button(
+            label=t(gid, user.id, "btn_chat_self"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def self_cb(interaction):
+            locale = get_locale(interaction.guild_id, self.user.id)
+            await interaction.response.edit_message(
+                embed=knight_embed(get_lore_text(interaction.guild_id, "self", locale=locale)),
+                view=ChatAfterView(self.user, interaction.guild_id),
+            )
+        self_btn.callback = self_cb
+        self.add_item(self_btn)
+
+        guide = discord.ui.Button(
+            label=t(gid, user.id, "btn_chat_guide"),
+            style=discord.ButtonStyle.success, row=1,
+        )
+        async def guide_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(arena_guide(interaction.guild_id, self.user.id)),
+                view=ChatAfterView(self.user, interaction.guild_id),
+            )
+        guide.callback = guide_cb
+        self.add_item(guide)
+
+        _add_lobby_exit(self, user, gid, row=2)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🏛 Về đấu trường / About this arena", style=discord.ButtonStyle.primary, row=0)
-    async def arena(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        await interaction.response.edit_message(
-            embed=knight_embed(get_lore_text(interaction.guild_id, "arena", locale=locale)),
-            view=ChatAfterView(self.user),
-        )
-
-    @discord.ui.button(label="🌑 Về bản thân ngài / About yourself", style=discord.ButtonStyle.primary, row=0)
-    async def self_(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        await interaction.response.edit_message(
-            embed=knight_embed(get_lore_text(interaction.guild_id, "self", locale=locale)),
-            view=ChatAfterView(self.user),
-        )
-
-    @discord.ui.button(label="📜 Hướng dẫn / Arena guide", style=discord.ButtonStyle.success, row=1)
-    async def guide(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(arena_guide(interaction.guild_id, self.user.id)),
-            view=ChatAfterView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=2)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=2)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 class ChatAfterView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        again = discord.ui.Button(
+            label=t(gid, user.id, "btn_chat_again"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def again_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(t(interaction.guild_id, self.user.id, "chat_intro")),
+                view=ChatView(self.user, interaction.guild_id),
+            )
+        again.callback = again_cb
+        self.add_item(again)
+
+        _add_lobby_exit(self, user, gid, row=0)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="💬 Hỏi điều khác / Ask something else", style=discord.ButtonStyle.primary, row=0)
-    async def again(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(t(interaction.guild_id, self.user.id, "chat_intro")),
-            view=ChatView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=0)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
