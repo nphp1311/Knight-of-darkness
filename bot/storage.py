@@ -8,16 +8,16 @@ _lock = Lock()
 
 
 DEFAULT_MONSTERS: list[dict] = [
-    {"name": "Đấu Sĩ Xương Khô", "emoji": "☠️", "level": 1, "tank": 35, "dps": 40, "hp": 60},
-    {"name": "Chuột Dịch Hạch", "emoji": "🐀", "level": 1, "tank": 30, "dps": 55, "hp": 45},
-    {"name": "Sói Bóng Đêm", "emoji": "🐺", "level": 2, "tank": 80, "dps": 110, "hp": 120},
-    {"name": "Nhện Độc", "emoji": "🕷", "level": 2, "tank": 70, "dps": 95, "hp": 160},
-    {"name": "Medusa", "emoji": "🐍", "level": 2, "tank": 70, "dps": 95, "hp": 160},
-    {"name": "Kỵ Sĩ Bị Nguyền", "emoji": "🧟", "level": 3, "tank": 180, "dps": 200, "hp": 260},
-    {"name": "Hỏa Linh Canh Giữ", "emoji": "🔥", "level": 3, "tank": 150, "dps": 300, "hp": 220},
-    {"name": "Ma Tướng Huyết Ảnh", "emoji": "🩸", "level": 4, "tank": 400, "dps": 500, "hp": 650},
-    {"name": "Người Gác Vực Thẳm", "emoji": "🗿", "level": 4, "tank": 900, "dps": 250, "hp": 1100},
-    {"name": "Rồng Hắc Ám", "emoji": "🐉", "level": 5, "tank": 900, "dps": 1400, "hp": 2000},
+    {"name": "Đấu Sĩ Xương Khô", "emoji": "☠️", "level": 1, "tank": 26, "dps": 30, "hp": 45},
+    {"name": "Chuột Dịch Hạch", "emoji": "🐀", "level": 1, "tank": 23, "dps": 41, "hp": 34},
+    {"name": "Sói Bóng Đêm", "emoji": "🐺", "level": 2, "tank": 60, "dps": 83, "hp": 90},
+    {"name": "Nhện Độc", "emoji": "🕷", "level": 2, "tank": 53, "dps": 71, "hp": 120},
+    {"name": "Medusa", "emoji": "🐍", "level": 2, "tank": 53, "dps": 71, "hp": 120},
+    {"name": "Kỵ Sĩ Bị Nguyền", "emoji": "🧟", "level": 3, "tank": 135, "dps": 150, "hp": 195},
+    {"name": "Hỏa Linh Canh Giữ", "emoji": "🔥", "level": 3, "tank": 113, "dps": 225, "hp": 165},
+    {"name": "Ma Tướng Huyết Ảnh", "emoji": "🩸", "level": 4, "tank": 300, "dps": 375, "hp": 488},
+    {"name": "Người Gác Vực Thẳm", "emoji": "🗿", "level": 4, "tank": 675, "dps": 188, "hp": 825},
+    {"name": "Rồng Hắc Ám", "emoji": "🐉", "level": 5, "tank": 675, "dps": 1050, "hp": 1500},
 ]
 
 
@@ -73,6 +73,8 @@ def get_player(guild_id, user_id):
             "rank": "I",
             "pvp_streak": 0,
             "achievements": [],
+            "potion_last_zero": False,
+            "potion_since_last_max": 0,
         }
         persist()
     p = g["players"][uid]
@@ -85,6 +87,8 @@ def get_player(guild_id, user_id):
     p.setdefault("rank", "I")
     p.setdefault("pvp_streak", 0)
     p.setdefault("achievements", [])
+    p.setdefault("potion_last_zero", False)
+    p.setdefault("potion_since_last_max", 0)
     for k in ("1", "2", "3", "4", "5"):
         p["wins_by_level"].setdefault(k, 0)
     return p
