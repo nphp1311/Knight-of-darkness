@@ -267,6 +267,28 @@ TR = {
         "@everyone ⚔️ **The arena trembles!** "
         "{c_mention} vs {t_mention} — witness the 1v1 deathmatch!"
     ),
+    "pvp_spectator_title": (
+        "👁 **Trực tiếp đấu trường — {n1} vs {n2}**",
+        "👁 **Live from the arena — {n1} vs {n2}**"
+    ),
+    "pvp_spectator_waiting": (
+        "_Hai đấu sĩ đang vào sân… (chỉ xem, không can thiệp được)_",
+        "_The combatants are entering the field… (spectators only — no interference)_"
+    ),
+    "pvp_spectator_round": (
+        "⚔️ **Lượt {turn}/{max_turns}** — đang diễn ra…",
+        "⚔️ **Round {turn}/{max_turns}** — in progress…"
+    ),
+    "pvp_thread_intro": (
+        "⚔️ **Phòng đấu riêng** — chỉ {c_mention} và {t_mention} thấy giao diện này.\n"
+        "Người xem khác chỉ có thể theo dõi qua tin nhắn cập nhật ngoài kênh.",
+        "⚔️ **Private duel room** — only {c_mention} and {t_mention} see this UI.\n"
+        "Spectators follow the live status posted in the main channel."
+    ),
+    "pvp_final_announce": (
+        "@everyone 🏆 **Kết thúc trận tử chiến** — {c_mention} vs {t_mention}",
+        "@everyone 🏆 **The deathmatch has ended** — {c_mention} vs {t_mention}"
+    ),
     "pvp_round_header": (
         "⚔️ **Lượt {turn}** — Cả hai hãy chọn (30 giây).\n\n"
         "**{s1_name}** 💊 `{s1_bar}` {s1_hp}/{s1_max_hp}\n"
@@ -479,7 +501,60 @@ def heal_amount(player) -> int:
 
 
 def damage_value(dps: int) -> int:
+    """Legacy flat damage (kept for backward compatibility / fallbacks)."""
     return max(1, int(dps * random.uniform(0.8, 1.2)))
+
+
+def damage_pct(atk_dps: int, def_tank: int, def_max_hp: int) -> int:
+    """Percentage-based damage so a 10-round duel can drain ~80-110% of a player's HP.
+
+    Each landing strike deals ~6-11% of the defender's max HP, modulated by the
+    attacker DPS / defender Tank ratio (clamped). With ~50-70% landing rate per
+    round across both fighters, displayed HP (normalised to 100) typically falls
+    from 100 to roughly 20…-10 by round 10.
+    """
+    if def_max_hp <= 0:
+        return damage_value(atk_dps)
+    ratio = max(1, atk_dps) / max(1, def_tank)
+    factor = max(0.55, min(1.8, ratio ** 0.5))
+    pct = 0.085 * factor * random.uniform(0.85, 1.20)
+    return max(1, int(round(def_max_hp * pct)))
+
+
+def compute_power(tank: int, dps: int, max_hp: int) -> float:
+    """Rough total power score, used for scaling HP-bar visual length."""
+    return float(tank) + float(dps) + float(max_hp) / 5.0
+
+
+def hp_bar_widths(power_a: float, power_b: float,
+                  base_max: int = 18, base_min: int = 6) -> tuple[int, int]:
+    """Stronger side gets a longer bar; weaker side shrinks proportionally.
+
+    Returns (width_for_a, width_for_b)."""
+    pa = max(1.0, power_a)
+    pb = max(1.0, power_b)
+    if pa >= pb:
+        ratio = pb / pa
+        wa = base_max
+        wb = max(base_min, int(round(base_max * ratio)))
+    else:
+        ratio = pa / pb
+        wb = base_max
+        wa = max(base_min, int(round(base_max * ratio)))
+    return wa, wb
+
+
+def hp_pct_display(cur: int, mx: int) -> int:
+    """Always show a 0-100 normalised HP value (can dip below 0 to expose how
+    badly a fighter was beaten — clamped at -20 for sanity)."""
+    if mx <= 0:
+        return 0
+    pct = int(round(100 * cur / mx))
+    if pct < -20:
+        pct = -20
+    if pct > 100:
+        pct = 100
+    return pct
 
 
 def crit_check() -> bool:
