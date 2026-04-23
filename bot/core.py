@@ -498,7 +498,7 @@ def block_chance(tank_p: int, dps_e: int) -> float:
 
 
 def player_max_hp(player) -> int:
-    return 50 + int(player.get("health", 5)) * 12
+    return int(player.get("health", 5))
 
 
 def heal_amount(player) -> int:
