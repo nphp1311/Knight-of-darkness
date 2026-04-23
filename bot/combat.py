@@ -477,23 +477,24 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
 
 
 class PostBattleView(discord.ui.View):
-    def __init__(self, user, guild_id=None, allowed_ids: set[int] | None = None):
+    def __init__(self, user, guild_id=None, allowed_ids: set[int] | None = None, show_again: bool = True):
         super().__init__(timeout=300)
         self.user = user
         self.allowed_ids = allowed_ids if allowed_ids is not None else {user.id}
         gid = guild_id
 
-        again = discord.ui.Button(
-            label=t(gid, user.id, "btn_fight_again"),
-            style=discord.ButtonStyle.danger, row=0,
-        )
-        async def again_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed(t(interaction.guild_id, interaction.user.id, "msg_choose_next_foe")),
-                view=ChallengeMenuView(interaction.user, interaction.guild_id),
+        if show_again:
+            again = discord.ui.Button(
+                label=t(gid, user.id, "btn_fight_again"),
+                style=discord.ButtonStyle.danger, row=0,
             )
-        again.callback = again_cb
-        self.add_item(again)
+            async def again_cb(interaction):
+                await interaction.response.edit_message(
+                    embed=knight_embed(t(interaction.guild_id, interaction.user.id, "msg_choose_next_foe")),
+                    view=ChallengeMenuView(interaction.user, interaction.guild_id),
+                )
+            again.callback = again_cb
+            self.add_item(again)
 
         lobby = discord.ui.Button(
             label=t(gid, user.id, "btn_lobby"),
@@ -612,313 +613,455 @@ async def show_pvp_target_picker(interaction: discord.Interaction, challenger):
 
 
 async def send_pvp_invite(interaction: discord.Interaction, challenger, target):
-    locale = get_locale(interaction.guild_id, challenger.id)
-    if locale == "en":
+    """Send invite as a private DM to the target; lock challenger's screen to 'waiting'."""
+    locale_ch = get_locale(interaction.guild_id, challenger.id)
+    locale_tg = get_locale(interaction.guild_id, target.id)
+    channel = interaction.channel
+    gid = interaction.guild_id
+    guild_name = interaction.guild.name if interaction.guild else "?"
+    channel_name = channel.name if channel and hasattr(channel, "name") else "?"
+
+    if locale_tg == "en":
         invite_text = (
             f"⚔️✉️⚔️ **Challenge Invitation**\n\n"
-            f"{target.mention}, **{challenger.display_name}** challenges you to a 1v1 duel!\n"
-            f"{target.display_name}, do you dare accept? _(60 seconds to respond)_"
+            f"**{challenger.display_name}** has challenged you to a 1vs1 duel "
+            f"in **#{channel_name}** of **{guild_name}**!\n\n"
+            f"Do you dare accept? _(60 seconds to respond)_"
         )
     else:
         invite_text = (
             f"⚔️✉️⚔️ **Thư mời thách đấu**\n\n"
-            f"{target.mention}, **{challenger.display_name}** thách đấu ngươi 1v1!\n"
-            f"{target.display_name}, ngươi có dám chấp nhận? _(60 giây để trả lời)_"
+            f"**{challenger.display_name}** đã thách đấu ngươi 1vs1 "
+            f"tại kênh **#{channel_name}** của **{guild_name}**!\n\n"
+            f"Ngươi có dám chấp nhận? _(60 giây để trả lời)_"
         )
-    view = PvpInviteView(challenger, target, interaction.guild_id)
-    await interaction.response.edit_message(embed=knight_embed(invite_text), view=view)
-    msg = await interaction.original_response()
-    view.bind_message(msg)
 
-
-class PvpInviteView(discord.ui.View):
-    def __init__(self, challenger, target, guild_id=None):
-        super().__init__(timeout=60)
-        self.challenger = challenger
-        self.target = target
-        self.responded = False
-        self.message: discord.Message | None = None
-        gid = guild_id
-
-        accept = discord.ui.Button(
-            label=t(gid, target.id, "pvp_accept_btn"),
-            style=discord.ButtonStyle.success,
+    if locale_ch == "en":
+        wait_text = (
+            f"📨 **Invitation sent to {target.display_name}.**\n\n"
+            f"Awaiting their reply via private message (up to 60 seconds)…"
         )
-        async def accept_cb(interaction):
-            self.responded = True
-            await show_pvp_ready(interaction, self.challenger, self.target)
-        accept.callback = accept_cb
-        self.add_item(accept)
-
-        decline = discord.ui.Button(
-            label=t(gid, target.id, "pvp_decline_btn"),
-            style=discord.ButtonStyle.danger,
+    else:
+        wait_text = (
+            f"📨 **Đã gửi lời mời tới {target.display_name}.**\n\n"
+            f"Đang chờ phản hồi qua tin nhắn riêng (tối đa 60 giây)…"
         )
-        async def decline_cb(interaction):
-            self.responded = True
-            locale = get_locale(interaction.guild_id, self.target.id)
-            if locale == "en":
-                msg = f"🌑 {self.target.display_name} has declined {self.challenger.display_name}'s challenge."
-            else:
-                msg = f"🌑 {self.target.display_name} đã từ chối thách đấu của {self.challenger.display_name}."
-            await interaction.response.edit_message(embed=knight_embed(msg), view=None)
-        decline.callback = decline_cb
-        self.add_item(decline)
+    await interaction.response.edit_message(embed=knight_embed(wait_text), view=None)
+    lobby_message = await interaction.original_response()
 
-    def bind_message(self, message: discord.Message):
-        self.message = message
-
-    async def interaction_check(self, interaction):
-        if interaction.user.id != self.target.id:
-            msg = "Only the invited player may respond." if get_locale(interaction.guild_id, interaction.user.id) == "en" else "Chỉ người được mời mới có thể trả lời."
-            await interaction.response.send_message(msg, ephemeral=True)
-            return False
-        return True
-
-    async def on_timeout(self):
-        if self.responded or not self.message:
-            return
-        # Use challenger's locale (we don't have an interaction here)
-        from .storage import get_locale as _gl
-        gid = self.message.guild.id if self.message.guild else None
-        locale = _gl(gid, self.challenger.id) if gid else "vi"
-        if locale == "en":
-            msg = (
-                f"⌛ **{self.target.display_name}** did not respond within 60 seconds. "
-                f"The challenge from **{self.challenger.display_name}** has been cancelled."
+    try:
+        dm_view = PvpInviteView(challenger, target, channel, lobby_message, gid)
+        dm_msg = await target.send(embed=knight_embed(invite_text), view=dm_view)
+        dm_view.bind_message(dm_msg)
+    except (discord.Forbidden, discord.HTTPException):
+        if locale_ch == "en":
+            err = (
+                f"💀 Could not deliver the invitation — **{target.display_name}** "
+                f"has direct messages from server members closed."
             )
         else:
-            msg = (
-                f"⌛ **{self.target.display_name}** đã không trả lời trong 60 giây. "
-                f"Lời thách đấu của **{self.challenger.display_name}** đã bị hủy."
+            err = (
+                f"💀 Không thể gửi lời mời — **{target.display_name}** "
+                f"đã tắt tin nhắn riêng từ thành viên server."
             )
         try:
-            await self.message.edit(embed=knight_embed(msg), view=None)
+            await lobby_message.edit(
+                embed=knight_embed(err),
+                view=ChallengeMenuView(challenger, gid),
+            )
         except (discord.NotFound, discord.HTTPException):
             pass
 
 
-class PvpReadyView(discord.ui.View):
-    def __init__(self, challenger, target, guild_id=None):
-        super().__init__(timeout=120)
+class PvpInviteView(discord.ui.View):
+    def __init__(self, challenger, target, channel, lobby_message, guild_id=None):
+        super().__init__(timeout=60)
         self.challenger = challenger
         self.target = target
-        self.ready: set[int] = set()
-        self.started = False
-        gid = guild_id
+        self.channel = channel
+        self.lobby_message = lobby_message
+        self.guild_id = guild_id
+        self.responded = False
+        self.dm_message: discord.Message | None = None
 
-        enter = discord.ui.Button(
-            label=t(gid, challenger.id, "btn_enter_battle"),
-            style=discord.ButtonStyle.danger, row=0,
+        accept = discord.ui.Button(
+            label=t(guild_id, target.id, "pvp_accept_btn"),
+            style=discord.ButtonStyle.success,
         )
-        enter.callback = self._enter_cb
-        self.add_item(enter)
+        async def accept_cb(interaction):
+            self.responded = True
+            locale_tg = get_locale(self.guild_id, self.target.id)
+            if locale_tg == "en":
+                ack = f"⚔️ Challenge accepted! Head to **#{self.channel.name}** to fight."
+            else:
+                ack = f"⚔️ Đã chấp nhận! Hãy vào kênh **#{self.channel.name}** để chiến đấu."
+            await interaction.response.edit_message(embed=knight_embed(ack), view=None)
+            self.stop()
+            await start_pvp_battle(self.channel, self.lobby_message,
+                                   self.challenger, self.target, self.guild_id)
+        accept.callback = accept_cb
+        self.add_item(accept)
 
-        withdraw = discord.ui.Button(
-            label=t(gid, challenger.id, "pvp_withdraw_btn"),
-            style=discord.ButtonStyle.secondary, row=0,
+        decline = discord.ui.Button(
+            label=t(guild_id, target.id, "pvp_decline_btn"),
+            style=discord.ButtonStyle.danger,
         )
-        withdraw.callback = self._withdraw_cb
-        self.add_item(withdraw)
+        async def decline_cb(interaction):
+            self.responded = True
+            locale_tg = get_locale(self.guild_id, self.target.id)
+            locale_ch = get_locale(self.guild_id, self.challenger.id)
+            tmsg = ("🌑 You declined the challenge."
+                    if locale_tg == "en"
+                    else "🌑 Ngươi đã từ chối thách đấu.")
+            cmsg = (f"🌑 **{self.target.display_name}** declined your challenge."
+                    if locale_ch == "en"
+                    else f"🌑 **{self.target.display_name}** đã từ chối thách đấu của ngươi.")
+            await interaction.response.edit_message(embed=knight_embed(tmsg), view=None)
+            try:
+                await self.lobby_message.edit(
+                    embed=knight_embed(cmsg),
+                    view=ChallengeMenuView(self.challenger, self.guild_id),
+                )
+            except (discord.NotFound, discord.HTTPException):
+                pass
+            self.stop()
+        decline.callback = decline_cb
+        self.add_item(decline)
+
+    def bind_message(self, message: discord.Message):
+        self.dm_message = message
 
     async def interaction_check(self, interaction):
-        if interaction.user.id not in (self.challenger.id, self.target.id):
-            locale = get_locale(interaction.guild_id, interaction.user.id)
-            msg = "You are not one of the two combatants." if locale == "en" else "Ngươi không phải là một trong hai đấu sĩ."
+        if interaction.user.id != self.target.id:
+            locale = get_locale(self.guild_id, interaction.user.id)
+            msg = "Only the invited player may respond." if locale == "en" else "Chỉ người được mời mới có thể trả lời."
             await interaction.response.send_message(msg, ephemeral=True)
             return False
         return True
 
-    def _status_text(self, locale: str = "vi") -> str:
-        c_mark = "✅" if self.challenger.id in self.ready else "⏳"
-        t_mark = "✅" if self.target.id in self.ready else "⏳"
-        if locale == "en":
-            return (
-                f"⚔️ **Both warriors face each other in the arena…**\n\n"
-                f"{c_mark} **{self.challenger.display_name}**\n"
-                f"{t_mark} **{self.target.display_name}**\n\n"
-                f"_Both must press **💥 Enter Battle** for the deathmatch to begin._"
-            )
-        return (
-            f"⚔️ **Cả hai đấu sĩ đã đối mặt nhau giữa đấu trường…**\n\n"
-            f"{c_mark} **{self.challenger.display_name}**\n"
-            f"{t_mark} **{self.target.display_name}**\n\n"
-            f"_Cả hai phải bấm **💥 Vào trận** thì trận tử chiến mới bắt đầu._"
-        )
-
-    async def _enter_cb(self, interaction):
-        locale = get_locale(interaction.guild_id, interaction.user.id)
-        if interaction.user.id in self.ready:
-            msg = "You are already ready — waiting for your opponent." if locale == "en" else "Ngươi đã sẵn sàng rồi — chờ đối thủ."
-            await interaction.response.send_message(msg, ephemeral=True)
+    async def on_timeout(self):
+        if self.responded:
             return
-        self.ready.add(interaction.user.id)
-
-        if {self.challenger.id, self.target.id}.issubset(self.ready) and not self.started:
-            self.started = True
-            await interaction.response.defer()
+        locale_tg = get_locale(self.guild_id, self.target.id) if self.guild_id else "vi"
+        locale_ch = get_locale(self.guild_id, self.challenger.id) if self.guild_id else "vi"
+        tmsg = ("⌛ The invitation has expired."
+                if locale_tg == "en"
+                else "⌛ Lời mời đã hết hạn.")
+        cmsg = (f"⌛ **{self.target.display_name}** did not respond within 60 seconds. "
+                f"The match has been cancelled."
+                if locale_ch == "en"
+                else f"⌛ **{self.target.display_name}** đã không trả lời trong 60 giây. "
+                f"Trận đấu đã bị hủy.")
+        if self.dm_message:
             try:
-                announce_text = (
-                    f"@everyone ⚔️ **The arena trembles!** "
-                    f"{self.challenger.mention} vs {self.target.mention} — witness the 1v1 deathmatch!"
-                ) if locale == "en" else (
-                    f"@everyone ⚔️ **Đấu trường rung chuyển!** "
-                    f"{self.challenger.mention} vs {self.target.mention} — "
-                    f"hãy tới chứng kiến trận tử chiến 1vs1!"
-                )
-                await interaction.channel.send(
-                    content=announce_text,
-                    allowed_mentions=discord.AllowedMentions(everyone=True, users=True),
-                )
-            except (discord.Forbidden, discord.HTTPException):
+                await self.dm_message.edit(embed=knight_embed(tmsg), view=None)
+            except (discord.NotFound, discord.HTTPException):
                 pass
-            msg = interaction.message
-            await run_pvp_battle(interaction, msg, self.challenger, self.target)
-            self.stop()
-        else:
-            await interaction.response.edit_message(
-                embed=knight_embed(self._status_text(locale)),
-                view=self,
+        try:
+            await self.lobby_message.edit(
+                embed=knight_embed(cmsg),
+                view=ChallengeMenuView(self.challenger, self.guild_id),
             )
-
-    async def _withdraw_cb(self, interaction):
-        locale = get_locale(interaction.guild_id, interaction.user.id)
-        if locale == "en":
-            msg = f"🌑 **{interaction.user.display_name}** has withdrawn from the arena. The deathmatch did not take place."
-        else:
-            msg = f"🌑 **{interaction.user.display_name}** đã rút lui khỏi đấu trường. Trận tử chiến không xảy ra."
-        await interaction.response.edit_message(embed=knight_embed(msg), view=None)
-        self.stop()
+        except (discord.NotFound, discord.HTTPException):
+            pass
 
 
-async def show_pvp_ready(interaction: discord.Interaction, challenger, target):
-    view = PvpReadyView(challenger, target, interaction.guild_id)
-    locale = get_locale(interaction.guild_id, challenger.id)
-    await interaction.response.edit_message(
-        embed=knight_embed(view._status_text(locale)),
-        view=view,
+# ============== PvP BATTLE ==============
+def _build_pvp_embed(s1, s2, turn, max_turns, header_line, log_block, locale: str = "vi") -> discord.Embed:
+    if locale == "en":
+        title = f"⚔️ **Round {turn}/{max_turns}**"
+    else:
+        title = f"⚔️ **Lượt {turn}/{max_turns}**"
+    body = (
+        f"{title}\n\n"
+        f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
+        f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}\n\n"
+        f"{header_line}"
     )
+    if log_block:
+        body += "\n\n" + log_block
+    return knight_embed(body)
 
 
-class PvpRoundView(discord.ui.View):
-    def __init__(self, p1_id, p2_id, locale: str = "vi", guild_id=None):
-        super().__init__(timeout=30)
-        self.choices: dict[int, str] = {}
-        self.p1_id = p1_id
-        self.p2_id = p2_id
+class PvpTurnView(discord.ui.View):
+    """Sequential-turn PvP view. Only `current_uid` may pick attack/defend.
+    Either combatant may surrender at any time."""
+
+    def __init__(self, current_uid: int, other_uid: int, locale: str = "vi", guild_id=None):
+        super().__init__(timeout=60)
+        self.current_uid = current_uid
+        self.other_uid = other_uid
         self.locale = locale
+        self.choice: str | None = None
+        self.surrender_uid: int | None = None
         self.future: asyncio.Future = asyncio.get_event_loop().create_future()
 
         atk = discord.ui.Button(
-            label=t(guild_id, p1_id, "btn_attack"),
-            style=discord.ButtonStyle.danger,
+            label=t(guild_id, current_uid, "btn_attack"),
+            style=discord.ButtonStyle.danger, row=0,
         )
         async def atk_cb(interaction):
-            await self._record(interaction, "A")
+            if interaction.user.id != self.current_uid:
+                msg = "It is not your turn." if self.locale == "en" else "Chưa tới lượt ngươi."
+                await interaction.response.send_message(msg, ephemeral=True)
+                return
+            await self._set(interaction, "A")
         atk.callback = atk_cb
         self.add_item(atk)
 
         df = discord.ui.Button(
-            label=t(guild_id, p1_id, "btn_defend"),
-            style=discord.ButtonStyle.primary,
+            label=t(guild_id, current_uid, "btn_defend"),
+            style=discord.ButtonStyle.primary, row=0,
         )
         async def df_cb(interaction):
-            await self._record(interaction, "D")
+            if interaction.user.id != self.current_uid:
+                msg = "It is not your turn." if self.locale == "en" else "Chưa tới lượt ngươi."
+                await interaction.response.send_message(msg, ephemeral=True)
+                return
+            await self._set(interaction, "D")
         df.callback = df_cb
         self.add_item(df)
 
-    async def _record(self, interaction, c: str):
-        if interaction.user.id not in (self.p1_id, self.p2_id):
-            msg = "You are not participating in this battle." if self.locale == "en" else "Ngươi không tham chiến."
-            await interaction.response.send_message(msg, ephemeral=True)
-            return
-        if interaction.user.id in self.choices:
-            msg = "You have already made your choice." if self.locale == "en" else "Ngươi đã chọn rồi."
-            await interaction.response.send_message(msg, ephemeral=True)
-            return
-        self.choices[interaction.user.id] = c
-        # Confirm in the user's own locale (not just challenger's)
-        user_locale = get_locale(interaction.guild_id, interaction.user.id)
-        if c == "A":
-            confirm = "Recorded: 🗡 Attack" if user_locale == "en" else "Đã ghi nhận: 🗡 Tấn công"
-        else:
-            confirm = "Recorded: 🛡 Defend" if user_locale == "en" else "Đã ghi nhận: 🛡 Phòng thủ"
-        await interaction.response.send_message(confirm, ephemeral=True)
-        if len(self.choices) == 2 and not self.future.done():
-            self.future.set_result(True)
+        sur_label = "🏳️ Surrender" if locale == "en" else "🏳️ Đầu hàng"
+        sur = discord.ui.Button(label=sur_label, style=discord.ButtonStyle.secondary, row=0)
+        async def sur_cb(interaction):
+            if interaction.user.id not in (self.current_uid, self.other_uid):
+                msg = "You are not in this battle." if self.locale == "en" else "Ngươi không tham chiến."
+                await interaction.response.send_message(msg, ephemeral=True)
+                return
+            self.surrender_uid = interaction.user.id
+            await interaction.response.defer()
+            if not self.future.done():
+                self.future.set_result(True)
             self.stop()
+        sur.callback = sur_cb
+        self.add_item(sur)
 
-    async def on_timeout(self):
-        for uid in (self.p1_id, self.p2_id):
-            self.choices.setdefault(uid, "D")
+    async def _set(self, interaction, c: str):
+        self.choice = c
+        await interaction.response.defer()
         if not self.future.done():
             self.future.set_result(True)
+        self.stop()
+
+    async def on_timeout(self):
+        if not self.future.done():
+            if self.choice is None:
+                self.choice = "D"
+            self.future.set_result(True)
 
 
-async def run_pvp_battle(interaction, msg, u1, u2):
-    locale = get_locale(interaction.guild_id, u1.id)
-    p1d = get_player(interaction.guild_id, u1.id)
-    p2d = get_player(interaction.guild_id, u2.id)
+def _choice_label(c: str, locale: str = "vi") -> str:
+    if c == "A":
+        return "🗡 attack" if locale == "en" else "🗡 tấn công"
+    return "🛡 defend" if locale == "en" else "🛡 phòng thủ"
+
+
+async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
+    """Run a 1vs1 sequential PvP battle on `lobby_message` (the challenger's screen)."""
+    locale = get_locale(gid, u1.id) if gid else "vi"
+    p1d = get_player(gid, u1.id)
+    p2d = get_player(gid, u2.id)
     s1 = BattleSide(u1.display_name, p1d["tank"], p1d["dps"], player_max_hp(p1d), False, u1.id)
     s2 = BattleSide(u2.display_name, p2d["tank"], p2d["dps"], player_max_hp(p2d), False, u2.id)
+    sides_by_id = {u1.id: s1, u2.id: s2}
+    users_by_id = {u1.id: u1, u2.id: u2}
 
-    log = []
-    turn = 1
-    while s1.hp > 0 and s2.hp > 0 and turn <= 30:
-        view = PvpRoundView(u1.id, u2.id, locale, interaction.guild_id)
-        if locale == "en":
-            round_header = (
-                f"⚔️ **Round {turn}** — Both choose (30 seconds).\n\n"
-                f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
-                f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}"
-            )
-            last_label = "__**Last round:**__"
-        else:
-            round_header = (
-                f"⚔️ **Lượt {turn}** — Cả hai hãy chọn (30 giây).\n\n"
-                f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
-                f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}"
-            )
-            last_label = "__**Lượt vừa rồi:**__"
-        embed = knight_embed(
-            round_header + ("\n\n" + last_label + "\n" + "\n".join(log) if log else "")
+    first = random.choice([u1, u2])
+    if locale == "en":
+        intro = (
+            f"⚔️ **Duel — {u1.display_name} vs {u2.display_name}**\n\n"
+            f"**{u1.display_name}**\n"
+            f"🛡 Tank `{p1d['tank']}` | 🗡 DPS `{p1d['dps']}` | 💊 HP `{s1.max_hp}`\n\n"
+            f"**{u2.display_name}**\n"
+            f"🛡 Tank `{p2d['tank']}` | 🗡 DPS `{p2d['dps']}` | 💊 HP `{s2.max_hp}`\n\n"
+            f"🤺 **Hiệp Sĩ Hắc Ám announces:** the first to strike is **{first.display_name}**!"
         )
-        await msg.edit(embed=embed, view=view)
+    else:
+        intro = (
+            f"⚔️ **Đại chiến — {u1.display_name} vs {u2.display_name}**\n\n"
+            f"**{u1.display_name}**\n"
+            f"🛡 Tank `{p1d['tank']}` | 🗡 DPS `{p1d['dps']}` | 💊 HP `{s1.max_hp}`\n\n"
+            f"**{u2.display_name}**\n"
+            f"🛡 Tank `{p2d['tank']}` | 🗡 DPS `{p2d['dps']}` | 💊 HP `{s2.max_hp}`\n\n"
+            f"🤺 **Hiệp Sĩ Hắc Ám thông báo:** Người tung chiêu đầu tiên là **{first.display_name}**!"
+        )
+    try:
+        await lobby_message.edit(content=f"{u1.mention} {u2.mention}",
+                                 embed=knight_embed(intro), view=None)
+    except (discord.NotFound, discord.HTTPException):
         try:
-            await asyncio.wait_for(view.future, timeout=31)
+            lobby_message = await channel.send(content=f"{u1.mention} {u2.mention}",
+                                               embed=knight_embed(intro))
+        except (discord.Forbidden, discord.HTTPException):
+            return
+    await asyncio.sleep(2.5)
+
+    MAX_TURNS = 10
+    surrender_uid: int | None = None
+    persistent_log = ""
+
+    for turn in range(1, MAX_TURNS + 1):
+        # Random first mover each round
+        first = random.choice([u1, u2])
+        second = u2 if first.id == u1.id else u1
+
+        # ---- First chooser's turn
+        first_header = (
+            f"🎯 It is **{first.display_name}**'s turn — make your choice."
+            if locale == "en"
+            else f"🎯 Đến lượt **{first.display_name}** ra chiêu."
+        )
+        view1 = PvpTurnView(first.id, second.id, locale, gid)
+        try:
+            await lobby_message.edit(
+                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, first_header, persistent_log, locale),
+                view=view1,
+            )
+        except (discord.NotFound, discord.HTTPException):
+            return
+        try:
+            await asyncio.wait_for(view1.future, timeout=61)
         except asyncio.TimeoutError:
             pass
-        c1 = view.choices.get(u1.id, "D")
-        c2 = view.choices.get(u2.id, "D")
-        decided = "⚔️ Both have made their decisions…" if locale == "en" else "⚔️ Cả hai đã ra quyết định…"
-        log = [decided]
-        log += resolve_round(s1, s2, c1, c2, locale)
-        turn += 1
+        if view1.surrender_uid is not None:
+            surrender_uid = view1.surrender_uid
+            break
+        c1 = view1.choice or "D"
 
-    if s1.hp <= 0 and s2.hp <= 0:
-        result = "💀 Both warriors have fallen." if locale == "en" else "💀 Cả hai đều ngã xuống."
+        # ---- Second chooser's turn (first's pick is hidden)
+        between_header = (
+            f"✅ **{first.display_name}** has chosen.\n"
+            f"🎯 Now **{second.display_name}**, make your choice."
+            if locale == "en"
+            else f"✅ **{first.display_name}** đã chọn chiêu thức.\n"
+                 f"🎯 Đến lượt **{second.display_name}** chọn."
+        )
+        view2 = PvpTurnView(second.id, first.id, locale, gid)
+        try:
+            await lobby_message.edit(
+                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, between_header, persistent_log, locale),
+                view=view2,
+            )
+        except (discord.NotFound, discord.HTTPException):
+            return
+        try:
+            await asyncio.wait_for(view2.future, timeout=61)
+        except asyncio.TimeoutError:
+            pass
+        if view2.surrender_uid is not None:
+            surrender_uid = view2.surrender_uid
+            break
+        c2 = view2.choice or "D"
+
+        # ---- Resolve
+        s_first = sides_by_id[first.id]
+        s_second = sides_by_id[second.id]
+        round_log = resolve_round(s_first, s_second, c1, c2, locale)
+        c1_label = _choice_label(c1, locale)
+        c2_label = _choice_label(c2, locale)
+        if locale == "en":
+            choices_line = (
+                f"**{first.display_name}** chose {c1_label} — "
+                f"**{second.display_name}** chose {c2_label}."
+            )
+            result_header = "⚔️ Round result:"
+        else:
+            choices_line = (
+                f"**{first.display_name}** chọn {c1_label} — "
+                f"**{second.display_name}** chọn {c2_label}."
+            )
+            result_header = "⚔️ Kết quả lượt đấu:"
+        persistent_log = choices_line + "\n" + "\n".join(round_log)
+        try:
+            await lobby_message.edit(
+                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
+                view=None,
+            )
+        except (discord.NotFound, discord.HTTPException):
+            return
+
+        if s1.hp <= 0 or s2.hp <= 0:
+            break
+        await asyncio.sleep(2.5)
+
+    # ---- Resolve match outcome
+    p1d = get_player(gid, u1.id)
+    p2d = get_player(gid, u2.id)
+
+    if surrender_uid is not None:
+        loser_id = surrender_uid
+        winner_id = u2.id if loser_id == u1.id else u1.id
+        if locale == "en":
+            result = (
+                f"🏳️ **The duel has been halted.**\n\n"
+                f"**{users_by_id[loser_id].display_name}** surrendered and is recorded as the loser.\n"
+                f"🏆 **{users_by_id[winner_id].display_name}** wins by default."
+            )
+        else:
+            result = (
+                f"🏳️ **Trận đấu bị tạm ngừng.**\n\n"
+                f"**{users_by_id[loser_id].display_name}** đã đầu hàng và mặc định bị tính thua.\n"
+                f"🏆 **{users_by_id[winner_id].display_name}** thắng cuộc."
+            )
+        wd = p1d if winner_id == u1.id else p2d
+        ld = p1d if loser_id == u1.id else p2d
+        wd["pvp_wins"] = wd.get("pvp_wins", 0) + 1
+        wd["pvp_streak"] = wd.get("pvp_streak", 0) + 1
+        ld["pvp_streak"] = 0
+    elif s1.hp <= 0 and s2.hp <= 0:
+        result = ("💀 Both warriors have fallen — a true draw."
+                  if locale == "en"
+                  else "💀 Cả hai đều ngã xuống — hòa.")
         p1d["pvp_streak"] = 0
         p2d["pvp_streak"] = 0
     elif s1.hp <= 0:
         if locale == "en":
-            result = f"🏆 **{s2.name}** is victorious! 💀 {s1.name}, your life force… has been extinguished."
+            result = f"🏆 **{s2.name}** is victorious! 💀 {s1.name} has been extinguished."
         else:
-            result = f"🏆 **{s2.name}** chiến thắng! 💀 {s1.name}, sinh mệnh của ngươi… đã cạn."
+            result = f"🏆 **{s2.name}** chiến thắng! 💀 {s1.name} đã bị hạ gục."
         p2d["pvp_wins"] = p2d.get("pvp_wins", 0) + 1
         p2d["pvp_streak"] = p2d.get("pvp_streak", 0) + 1
         p1d["pvp_streak"] = 0
     elif s2.hp <= 0:
         if locale == "en":
-            result = f"🏆 **{s1.name}** is victorious! 💀 {s2.name}, your life force… has been extinguished."
+            result = f"🏆 **{s1.name}** is victorious! 💀 {s2.name} has been extinguished."
         else:
-            result = f"🏆 **{s1.name}** chiến thắng! 💀 {s2.name}, sinh mệnh của ngươi… đã cạn."
+            result = f"🏆 **{s1.name}** chiến thắng! 💀 {s2.name} đã bị hạ gục."
         p1d["pvp_wins"] = p1d.get("pvp_wins", 0) + 1
         p1d["pvp_streak"] = p1d.get("pvp_streak", 0) + 1
         p2d["pvp_streak"] = 0
     else:
-        result = "The battle ends in a stalemate." if locale == "en" else "Trận đấu kết thúc trong bế tắc."
-        p1d["pvp_streak"] = 0
-        p2d["pvp_streak"] = 0
+        # Reached MAX_TURNS — compare HP
+        if s1.hp == s2.hp:
+            if locale == "en":
+                result = (f"⚖️ After {MAX_TURNS} rounds, both warriors stand with equal life force "
+                          f"({s1.hp} HP each) — a draw.")
+            else:
+                result = (f"⚖️ Sau {MAX_TURNS} lượt, cả hai đấu sĩ còn lại sinh lực ngang nhau "
+                          f"({s1.hp} HP) — hòa.")
+            p1d["pvp_streak"] = 0
+            p2d["pvp_streak"] = 0
+        elif s1.hp > s2.hp:
+            if locale == "en":
+                result = (f"🏆 After {MAX_TURNS} rounds, **{s1.name}** stands taller "
+                          f"({s1.hp} HP vs {s2.hp} HP) — victory!")
+            else:
+                result = (f"🏆 Sau {MAX_TURNS} lượt, **{s1.name}** đứng vững hơn "
+                          f"({s1.hp} HP vs {s2.hp} HP) — chiến thắng!")
+            p1d["pvp_wins"] = p1d.get("pvp_wins", 0) + 1
+            p1d["pvp_streak"] = p1d.get("pvp_streak", 0) + 1
+            p2d["pvp_streak"] = 0
+        else:
+            if locale == "en":
+                result = (f"🏆 After {MAX_TURNS} rounds, **{s2.name}** stands taller "
+                          f"({s2.hp} HP vs {s1.hp} HP) — victory!")
+            else:
+                result = (f"🏆 Sau {MAX_TURNS} lượt, **{s2.name}** đứng vững hơn "
+                          f"({s2.hp} HP vs {s1.hp} HP) — chiến thắng!")
+            p2d["pvp_wins"] = p2d.get("pvp_wins", 0) + 1
+            p2d["pvp_streak"] = p2d.get("pvp_streak", 0) + 1
+            p1d["pvp_streak"] = 0
 
     new1 = unlock_achievements(p1d)
     new2 = unlock_achievements(p2d)
@@ -928,7 +1071,18 @@ async def run_pvp_battle(interaction, msg, u1, u2):
     if new2:
         result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
 
-    await msg.edit(
-        embed=knight_embed(result),
-        view=PostBattleView(u1, interaction.guild_id, allowed_ids={u1.id, u2.id}),
-    )
+    try:
+        await lobby_message.edit(
+            content=f"{u1.mention} {u2.mention}",
+            embed=knight_embed(result),
+            view=PostBattleView(u1, gid, allowed_ids={u1.id, u2.id}, show_again=False),
+        )
+    except (discord.NotFound, discord.HTTPException):
+        try:
+            await channel.send(
+                content=f"{u1.mention} {u2.mention}",
+                embed=knight_embed(result),
+                view=PostBattleView(u1, gid, allowed_ids={u1.id, u2.id}, show_again=False),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
