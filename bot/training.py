@@ -70,11 +70,18 @@ class TrainView(discord.ui.View):
 COLOR_RED = "🔴"
 COLOR_GREEN = "🟢"
 COLOR_BLUE = "🔵"
-COLOR_LABELS = {COLOR_RED: "🔴 đỏ", COLOR_GREEN: "🟢 xanh lá", COLOR_BLUE: "🔵 xanh dương"}
+COLOR_YELLOW = "🟡"
+COLOR_LABELS = {
+    COLOR_RED: "🔴 đỏ",
+    COLOR_GREEN: "🟢 xanh lá",
+    COLOR_BLUE: "🔵 xanh dương",
+    COLOR_YELLOW: "🟡 vàng",
+}
 DIRECTIONS = {
-    COLOR_RED: ("🛡 Bên trái", discord.ButtonStyle.danger),
-    COLOR_GREEN: ("🛡 Đứng yên", discord.ButtonStyle.success),
-    COLOR_BLUE: ("🛡 Bên phải", discord.ButtonStyle.primary),
+    COLOR_RED:    ("◀️ Né trái",   discord.ButtonStyle.danger),
+    COLOR_GREEN:  ("⏸️ Đứng yên",  discord.ButtonStyle.success),
+    COLOR_BLUE:   ("▶️ Né phải",   discord.ButtonStyle.primary),
+    COLOR_YELLOW: ("🔼 Nhảy lên",  discord.ButtonStyle.secondary),
 }
 
 
@@ -178,7 +185,7 @@ async def run_tank_session(interaction, user):
 
 
 # ============== DPS ==============
-DPS_EMOJIS = ["🗡", "⚔️", "💥"]
+DPS_EMOJIS = ["🗡", "⚔️", "💥", "🏹"]
 
 
 class DpsReadyView(discord.ui.View):
@@ -252,7 +259,7 @@ async def run_dps_session(interaction, user):
     fails = 0
     msg = None
     for turn in range(1, 6):
-        seq = [random.choice(DPS_EMOJIS) for _ in range(4)]
+        seq = random.sample(DPS_EMOJIS, 4)
         embed = knight_embed(
             f"⚔️ **Lượt {turn}/5** — Hãy bấm theo đúng thứ tự sau đây:\n\n"
             f"# {' → '.join(seq)}\n\nNgươi có 10 giây."
