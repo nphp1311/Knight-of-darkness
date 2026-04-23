@@ -49,7 +49,7 @@ TR = {
     "btn_pvp_challenge": ("⚔️ Thách đấu người chơi", "⚔️ Challenge Player"),
     "btn_pve_challenge": ("🐉 Thách đấu quái vật", "🐉 Challenge Monster"),
     "btn_tank_left":  ("◀️ Né trái",   "◀️ Dodge left"),
-    "btn_tank_still": ("⏸️ Đứng yên",  "⏸️ Stand still"),
+    "btn_tank_still": ("🦘 Nhảy lên", "🦘 Jump up"),
     "btn_tank_right": ("▶️ Né phải",   "▶️ Dodge right"),
     "msg_not_your_turn": ("Đây không phải lượt của ngươi.", "Not your turn."),
     "msg_only_summoner": ("Chỉ người triệu hồi ta mới có thể chọn.", "Only the one who summoned me may choose."),
@@ -284,6 +284,12 @@ TR = {
         "Người xem khác chỉ có thể theo dõi qua tin nhắn cập nhật ngoài kênh.",
         "⚔️ **Private duel room** — only {c_mention} and {t_mention} see this UI.\n"
         "Spectators follow the live status posted in the main channel."
+    ),
+    "pvp_thread_delete_notice": (
+        "🗑️ Phòng đấu riêng này sẽ tự đóng sau **{secs} giây**. "
+        "Hãy chụp lại bất cứ điều gì các ngươi muốn giữ.",
+        "🗑️ This private duel room will close in **{secs} seconds**. "
+        "Screenshot anything you wish to keep."
     ),
     "pvp_final_announce": (
         "@everyone 🏆 **Kết thúc trận tử chiến** — {c_mention} vs {t_mention}",
