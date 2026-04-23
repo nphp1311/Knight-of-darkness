@@ -200,65 +200,102 @@ def parse_user_id(raw: str) -> int | None:
 
 # ============== ADMIN MAIN ==============
 class AdminView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
-        gid = getattr(user, "guild", None)
-        gid = None  # guild_id resolved at interaction time
+        self._guild_id = guild_id
+        loc = get_locale(guild_id, user.id) if guild_id else "vi"
 
-    def _gid(self, interaction):
-        return getattr(interaction, "guild_id", None)
+        # Row 0
+        btn_roles = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_roles"), style=discord.ButtonStyle.primary, row=0
+        )
+        async def _roles(interaction, _self=self):
+            gid = interaction.guild_id
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(gid, _self.user.id, "roles_pick")),
+                view=RankRoleSelectView(_self.user),
+            )
+        btn_roles.callback = _roles
+        self.add_item(btn_roles)
+
+        btn_lore = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_lore"), style=discord.ButtonStyle.primary, row=0
+        )
+        async def _lore(interaction, _self=self):
+            gid = interaction.guild_id
+            view = LoreTopicView(_self.user)
+            await view.setup(interaction)
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(gid, _self.user.id, "lore_title")), view=view
+            )
+        btn_lore.callback = _lore
+        self.add_item(btn_lore)
+
+        # Row 1
+        btn_monsters = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_monsters"), style=discord.ButtonStyle.primary, row=1
+        )
+        async def _monsters(interaction, _self=self):
+            gid = interaction.guild_id
+            view = MonsterLevelView(_self.user)
+            await view.setup(interaction)
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(gid, _self.user.id, "monsters_title")), view=view
+            )
+        btn_monsters.callback = _monsters
+        self.add_item(btn_monsters)
+
+        # Row 2
+        btn_edit = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_edit_player"), style=discord.ButtonStyle.danger, row=2
+        )
+        async def _edit(interaction, _self=self):
+            await interaction.response.send_modal(EditPlayerModal(_self.user, interaction.guild_id))
+        btn_edit.callback = _edit
+        self.add_item(btn_edit)
+
+        btn_del = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_reset_player"), style=discord.ButtonStyle.danger, row=2
+        )
+        async def _del(interaction, _self=self):
+            await interaction.response.send_modal(DeletePlayerModal(_self.user, interaction.guild_id))
+        btn_del.callback = _del
+        self.add_item(btn_del)
+
+        btn_reset = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_reset_server"), style=discord.ButtonStyle.danger, row=2
+        )
+        async def _reset(interaction, _self=self):
+            gid = interaction.guild_id
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(gid, _self.user.id, "reset_server_warn")),
+                view=ResetConfirmView(_self.user, gid),
+            )
+        btn_reset.callback = _reset
+        self.add_item(btn_reset)
+
+        # Row 3
+        btn_lobby = discord.ui.Button(
+            label="🗿 Lobby" if loc == "en" else "🗿 Sảnh chờ",
+            style=discord.ButtonStyle.secondary, row=3
+        )
+        async def _lobby(interaction, _self=self):
+            await go_lobby(interaction, _self.user)
+        btn_lobby.callback = _lobby
+        self.add_item(btn_lobby)
+
+        btn_exit = discord.ui.Button(
+            label="🚪 Exit" if loc == "en" else "🚪 Thoát",
+            style=discord.ButtonStyle.danger, row=3
+        )
+        async def _exit(interaction):
+            await exit_bot(interaction)
+        btn_exit.callback = _exit
+        self.add_item(btn_exit)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🏷 Thiết lập role / Set Reward Roles", style=discord.ButtonStyle.primary, row=0)
-    async def roles(self, interaction, button):
-        gid = interaction.guild_id
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(gid, self.user.id, "roles_pick")),
-            view=RankRoleSelectView(self.user),
-        )
-
-    @discord.ui.button(label="🧿 Lore / Chat Lore", style=discord.ButtonStyle.primary, row=0)
-    async def lore(self, interaction, button):
-        gid = interaction.guild_id
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(gid, self.user.id, "lore_title")),
-            view=LoreTopicView(self.user),
-        )
-
-    @discord.ui.button(label="🐉 Quái vật / Monsters", style=discord.ButtonStyle.primary, row=1)
-    async def monsters(self, interaction, button):
-        gid = interaction.guild_id
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(gid, self.user.id, "monsters_title")),
-            view=MonsterLevelView(self.user),
-        )
-
-    @discord.ui.button(label="✏️ Sửa người chơi / Edit Player", style=discord.ButtonStyle.danger, row=2)
-    async def edit(self, interaction, button):
-        await interaction.response.send_modal(EditPlayerModal(self.user, interaction.guild_id))
-
-    @discord.ui.button(label="🗑 Reset người chơi / Reset Player", style=discord.ButtonStyle.danger, row=2)
-    async def delete(self, interaction, button):
-        await interaction.response.send_modal(DeletePlayerModal(self.user, interaction.guild_id))
-
-    @discord.ui.button(label="☢️ Reset server / Reset Server", style=discord.ButtonStyle.danger, row=2)
-    async def reset(self, interaction, button):
-        gid = interaction.guild_id
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(gid, self.user.id, "reset_server_warn")),
-            view=ResetConfirmView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Back to Lobby", style=discord.ButtonStyle.secondary, row=3)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=3)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 # ============== RANK ROLE SETUP ==============
@@ -289,9 +326,11 @@ class RankRoleSelectView(discord.ui.View):
             async def cb(interaction, r=rk):
                 locale = get_locale(interaction.guild_id, self.user.id)
                 rn = RANK_INFO[r]["name_en"] if locale == "en" else RANK_INFO[r]["name"]
+                view2 = RolePickerView(self.user, r, interaction.guild_id)
+                await view2._setup_buttons(interaction)
                 await interaction.response.edit_message(
                     embed=knight_embed(ta(interaction.guild_id, self.user.id, "roles_pick_role", rk=r, rank_name=rn)),
-                    view=RolePickerView(self.user, r),
+                    view=view2,
                 )
             btn.callback = cb
             self.add_item(btn)
@@ -303,7 +342,7 @@ class RankRoleSelectView(discord.ui.View):
         async def back_cb(interaction):
             await interaction.response.edit_message(
                 embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
-                view=AdminView(self.user),
+                view=AdminView(self.user, interaction.guild_id),
             )
         back.callback = back_cb
         self.add_item(back)
@@ -328,9 +367,11 @@ async def show_rank_role_select(interaction, user):
         async def cb(interaction, r=rk):
             loc2 = get_locale(interaction.guild_id, user.id)
             rn2 = RANK_INFO[r]["name_en"] if loc2 == "en" else RANK_INFO[r]["name"]
+            view2 = RolePickerView(user, r, interaction.guild_id)
+            await view2._setup_buttons(interaction)
             await interaction.response.edit_message(
                 embed=knight_embed(ta(interaction.guild_id, user.id, "roles_pick_role", rk=r, rank_name=rn2)),
-                view=RolePickerView(user, r),
+                view=view2,
             )
         btn.callback = cb
         view.add_item(btn)
@@ -342,7 +383,7 @@ async def show_rank_role_select(interaction, user):
     async def back_cb(interaction):
         await interaction.response.edit_message(
             embed=knight_embed(ta(interaction.guild_id, user.id, "admin_title")),
-            view=AdminView(user),
+            view=AdminView(user, interaction.guild_id),
         )
     back.callback = back_cb
     view.add_item(back)
@@ -353,11 +394,12 @@ async def show_rank_role_select(interaction, user):
 
 
 class RolePickerView(discord.ui.View):
-    def __init__(self, user, rank):
+    def __init__(self, user, rank, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
         self.rank = rank
-        self.add_item(RoleSelect(rank))
+        locale = get_locale(guild_id, user.id) if guild_id else "vi"
+        self.add_item(RoleSelect(rank, locale))
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
@@ -374,7 +416,7 @@ class RolePickerView(discord.ui.View):
             persist()
             await interaction.response.edit_message(
                 embed=knight_embed(ta(interaction.guild_id, self.user.id, "role_cleared", rk=self.rank)),
-                view=AdminView(self.user),
+                view=AdminView(self.user, interaction.guild_id),
             )
         clear.callback = clear_cb
         self.add_item(clear)
@@ -390,7 +432,7 @@ class RolePickerView(discord.ui.View):
 
 
 async def show_role_picker(interaction, user, rank):
-    view = RolePickerView(user, rank)
+    view = RolePickerView(user, rank, interaction.guild_id)
     await view._setup_buttons(interaction)
     gid = interaction.guild_id
     locale = get_locale(gid, user.id)
@@ -402,8 +444,9 @@ async def show_role_picker(interaction, user, rank):
 
 
 class RoleSelect(discord.ui.RoleSelect):
-    def __init__(self, rank):
-        super().__init__(placeholder="Select a role… / Chọn role…", min_values=1, max_values=1, row=0)
+    def __init__(self, rank, locale: str = "vi"):
+        placeholder = "Select a role…" if locale == "en" else "Chọn role…"
+        super().__init__(placeholder=placeholder, min_values=1, max_values=1, row=0)
         self.rank = rank
 
     async def callback(self, interaction):
@@ -416,7 +459,7 @@ class RoleSelect(discord.ui.RoleSelect):
                 ta(interaction.guild_id, interaction.user.id, "role_assigned",
                    role_mention=role.mention, rk=self.rank)
             ),
-            view=AdminView(interaction.user),
+            view=AdminView(interaction.user, interaction.guild_id),
         )
 
 
@@ -505,29 +548,39 @@ class DeletePlayerModal(discord.ui.Modal):
 
 
 class ResetConfirmView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=120)
         self.user = user
 
+        btn_confirm = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_confirm_reset"),
+            style=discord.ButtonStyle.danger,
+        )
+        async def _confirm(interaction, _self=self):
+            g = get_guild(interaction.guild_id)
+            g["players"] = {}
+            persist()
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(interaction.guild_id, _self.user.id, "reset_server_done")),
+                view=AdminView(_self.user, interaction.guild_id),
+            )
+        btn_confirm.callback = _confirm
+        self.add_item(btn_confirm)
+
+        btn_cancel = discord.ui.Button(
+            label=ta(guild_id, user.id, "btn_cancel"),
+            style=discord.ButtonStyle.secondary,
+        )
+        async def _cancel(interaction, _self=self):
+            await interaction.response.edit_message(
+                embed=knight_embed(ta(interaction.guild_id, _self.user.id, "admin_title")),
+                view=AdminView(_self.user, interaction.guild_id),
+            )
+        btn_cancel.callback = _cancel
+        self.add_item(btn_cancel)
+
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="☢️ Xác nhận / Confirm Reset", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction, button):
-        g = get_guild(interaction.guild_id)
-        g["players"] = {}
-        persist()
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(interaction.guild_id, self.user.id, "reset_server_done")),
-            view=AdminView(self.user),
-        )
-
-    @discord.ui.button(label="❌ Huỷ / Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
-            view=AdminView(self.user),
-        )
 
 
 # ============== LORE MANAGEMENT ==============
@@ -592,7 +645,7 @@ class LoreTopicView(discord.ui.View):
         async def back_cb(interaction):
             await interaction.response.edit_message(
                 embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
-                view=AdminView(self.user),
+                view=AdminView(self.user, interaction.guild_id),
             )
         back.callback = back_cb
         self.add_item(back)
@@ -642,7 +695,7 @@ class LoreSelect(discord.ui.Select):
         )
         await interaction.response.edit_message(
             embed=embed,
-            view=LoreItemActionView(interaction.user, self.topic, idx),
+            view=LoreItemActionView(interaction.user, self.topic, idx, interaction.guild_id),
         )
 
 
@@ -690,36 +743,53 @@ async def show_lore_list(interaction, user, topic: str):
 
 
 class LoreItemActionView(discord.ui.View):
-    def __init__(self, user, topic, idx):
+    def __init__(self, user, topic, idx, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
         self.topic = topic
         self.idx = idx
 
+        loc = get_locale(guild_id, user.id) if guild_id else "vi"
+
+        btn_edit = discord.ui.Button(
+            label="✏️ Edit" if loc == "en" else "✏️ Sửa",
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def _edit(interaction, _self=self):
+            g = get_guild(interaction.guild_id)
+            msgs = g["lore"][_self.topic]["messages"]
+            current = msgs[_self.idx] if 0 <= _self.idx < len(msgs) else ""
+            await interaction.response.send_modal(
+                LoreEditModal(_self.user, _self.topic, _self.idx, current, interaction.guild_id)
+            )
+        btn_edit.callback = _edit
+        self.add_item(btn_edit)
+
+        btn_del = discord.ui.Button(
+            label="🗑 Delete" if loc == "en" else "🗑 Xoá",
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        async def _del(interaction, _self=self):
+            g = get_guild(interaction.guild_id)
+            msgs = g["lore"][_self.topic]["messages"]
+            if 0 <= _self.idx < len(msgs):
+                msgs.pop(_self.idx)
+                persist()
+            await show_lore_list(interaction, _self.user, _self.topic)
+        btn_del.callback = _del
+        self.add_item(btn_del)
+
+        btn_back = discord.ui.Button(
+            label="◀ Back" if loc == "en" else "◀ Quay lại",
+            style=discord.ButtonStyle.secondary, row=1,
+        )
+        async def _back(interaction, _self=self):
+            await show_lore_list(interaction, _self.user, _self.topic)
+        btn_back.callback = _back
+        self.add_item(btn_back)
+
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="✏️ Sửa / Edit", style=discord.ButtonStyle.primary, row=0)
-    async def edit(self, interaction, button):
-        g = get_guild(interaction.guild_id)
-        msgs = g["lore"][self.topic]["messages"]
-        current = msgs[self.idx] if 0 <= self.idx < len(msgs) else ""
-        await interaction.response.send_modal(
-            LoreEditModal(self.user, self.topic, self.idx, current, interaction.guild_id)
-        )
-
-    @discord.ui.button(label="🗑 Xoá / Delete", style=discord.ButtonStyle.danger, row=0)
-    async def delete(self, interaction, button):
-        g = get_guild(interaction.guild_id)
-        msgs = g["lore"][self.topic]["messages"]
-        if 0 <= self.idx < len(msgs):
-            msgs.pop(self.idx)
-            persist()
-        await show_lore_list(interaction, self.user, self.topic)
-
-    @discord.ui.button(label="◀ Quay lại / Back", style=discord.ButtonStyle.secondary, row=1)
-    async def back(self, interaction, button):
-        await show_lore_list(interaction, self.user, self.topic)
 
 
 class LoreAddModal(discord.ui.Modal):
@@ -825,7 +895,7 @@ class MonsterLevelView(discord.ui.View):
         async def back_cb(interaction):
             await interaction.response.edit_message(
                 embed=knight_embed(ta(interaction.guild_id, self.user.id, "admin_title")),
-                view=AdminView(self.user),
+                view=AdminView(self.user, interaction.guild_id),
             )
         back.callback = back_cb
         self.add_item(back)
@@ -901,7 +971,7 @@ class MonsterSelect(discord.ui.Select):
         )
         await interaction.response.edit_message(
             embed=embed,
-            view=MonsterItemView(interaction.user, idx, self.level),
+            view=MonsterItemView(interaction.user, idx, self.level, interaction.guild_id),
         )
 
 
@@ -936,33 +1006,50 @@ class MonsterManageView(discord.ui.View):
 
 
 class MonsterItemView(discord.ui.View):
-    def __init__(self, user, idx: int, level: int):
+    def __init__(self, user, idx: int, level: int, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
         self.idx = idx
         self.level = level
 
+        loc = get_locale(guild_id, user.id) if guild_id else "vi"
+
+        btn_edit = discord.ui.Button(
+            label="✏️ Edit" if loc == "en" else "✏️ Sửa",
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def _edit(interaction, _self=self):
+            monsters = get_monsters()
+            if not (0 <= _self.idx < len(monsters)):
+                await show_monster_list(interaction, _self.user, _self.level)
+                return
+            await interaction.response.send_modal(
+                MonsterEditModal(_self.user, _self.idx, _self.level, monsters[_self.idx], interaction.guild_id)
+            )
+        btn_edit.callback = _edit
+        self.add_item(btn_edit)
+
+        btn_del = discord.ui.Button(
+            label="🗑 Delete" if loc == "en" else "🗑 Xoá",
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        async def _del(interaction, _self=self):
+            delete_monster(_self.idx)
+            await show_monster_list(interaction, _self.user, _self.level)
+        btn_del.callback = _del
+        self.add_item(btn_del)
+
+        btn_back = discord.ui.Button(
+            label="◀ Back" if loc == "en" else "◀ Quay lại",
+            style=discord.ButtonStyle.secondary, row=1,
+        )
+        async def _back(interaction, _self=self):
+            await show_monster_list(interaction, _self.user, _self.level)
+        btn_back.callback = _back
+        self.add_item(btn_back)
+
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="✏️ Sửa / Edit", style=discord.ButtonStyle.primary, row=0)
-    async def edit(self, interaction, button):
-        monsters = get_monsters()
-        if not (0 <= self.idx < len(monsters)):
-            await show_monster_list(interaction, self.user, self.level)
-            return
-        await interaction.response.send_modal(
-            MonsterEditModal(self.user, self.idx, self.level, monsters[self.idx], interaction.guild_id)
-        )
-
-    @discord.ui.button(label="🗑 Xoá / Delete", style=discord.ButtonStyle.danger, row=0)
-    async def delete(self, interaction, button):
-        delete_monster(self.idx)
-        await show_monster_list(interaction, self.user, self.level)
-
-    @discord.ui.button(label="◀ Quay lại / Back", style=discord.ButtonStyle.secondary, row=1)
-    async def back(self, interaction, button):
-        await show_monster_list(interaction, self.user, self.level)
 
 
 def _parse_int(s: str, default: int = 0) -> int:
