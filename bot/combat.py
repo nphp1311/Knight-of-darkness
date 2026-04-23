@@ -304,13 +304,8 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
     p_side = BattleSide(user.display_name, p_data["tank"], p_data["dps"], player_max_hp(p_data), False, user.id)
     e_side = BattleSide(monster.display, monster.tank, monster.dps, monster.hp, True)
 
-    await interaction.response.edit_message(
-        embed=knight_embed(
-            f"💥 Trận chiến giữa **{user.display_name}** và **{monster.display}** đã bắt đầu!"
-        ),
-        view=None,
-    )
-    msg = await interaction.original_response()
+    await interaction.response.defer()
+    msg = interaction.message
 
     log = []
     turn = 1
@@ -524,13 +519,7 @@ class PvpReadyView(discord.ui.View):
 
         if {self.challenger.id, self.target.id}.issubset(self.ready) and not self.started:
             self.started = True
-            await interaction.response.edit_message(
-                embed=knight_embed(
-                    f"💥 Trận đấu 1vs1 giữa **{self.challenger.display_name}** "
-                    f"và **{self.target.display_name}** đã bắt đầu! 💥"
-                ),
-                view=None,
-            )
+            await interaction.response.defer()
             try:
                 await interaction.channel.send(
                     content=(
@@ -542,7 +531,7 @@ class PvpReadyView(discord.ui.View):
                 )
             except (discord.Forbidden, discord.HTTPException):
                 pass
-            msg = await interaction.original_response()
+            msg = interaction.message
             await run_pvp_battle(interaction, msg, self.challenger, self.target)
             self.stop()
         else:
