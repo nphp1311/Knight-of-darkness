@@ -7,6 +7,7 @@ from .storage import get_player, persist, get_locale
 from .core import (
     knight_embed, t, RANK_INFO, RANKS, Monster, monsters_by_level, can_fight_monster,
     attack_chance, block_chance, player_max_hp, heal_amount, damage_value,
+    damage_pct, compute_power, hp_bar_widths, hp_pct_display,
     crit_check, miss_check, compute_rank, has_rank_role,
     go_lobby, exit_bot, announce_rank_up, maybe_grant_rank_role,
     unlock_achievements, announce_unlocks, announce_achievements_public,
@@ -249,8 +250,24 @@ class PveActionView(discord.ui.View):
 
 
 def hp_bar(cur, mx, width=12):
+    """Legacy helper — fills based on raw cur/mx (no percentage normalisation)."""
     filled = max(0, min(width, int(width * cur / mx)))
     return "█" * filled + "░" * (width - filled)
+
+
+def _hp_bar_pct(pct: int, width: int) -> str:
+    """Render a fixed-width bar from a normalised 0-100 percentage."""
+    p = max(0, min(100, pct))
+    filled = int(round(width * p / 100))
+    filled = max(0, min(width, filled))
+    return "█" * filled + "░" * (width - filled)
+
+
+def render_hp_line(side: "BattleSide", width: int) -> str:
+    """Display HP as 'X/100' (normalised) with a power-scaled bar.
+    The display can dip below 0 to expose how badly a fighter was beaten."""
+    pct = hp_pct_display(side.hp, side.max_hp)
+    return f"💊 `{_hp_bar_pct(pct, width)}` {pct}/100"
 
 
 def attack_vs_defend(atk: BattleSide, defn: BattleSide, locale: str = "vi") -> list[str]:
@@ -262,7 +279,7 @@ def attack_vs_defend(atk: BattleSide, defn: BattleSide, locale: str = "vi") -> l
     if random.random() < block:
         log.append(f"🌟 🛡 {defn.name} {'blocked the strike.' if locale == 'en' else 'chặn đứng đòn đánh.'}")
     else:
-        dmg = damage_value(atk.dps)
+        dmg = damage_pct(atk.dps, defn.tank, defn.max_hp)
         if locale == "en":
             log.append(f"💀 🛡 {defn.name}'s defense crumbles! 🗡 {atk.name} deals **-{dmg} HP**.")
         else:
@@ -279,7 +296,7 @@ def resolve_round(p: BattleSide, e: BattleSide, p_choice: str, e_choice: str, lo
                 log.append(f"💀 🗡 {atk.name} {'missed!' if locale == 'en' else 'đánh trượt!'}")
                 continue
             if random.random() < attack_chance(atk.dps, defn.dps):
-                dmg = damage_value(atk.dps)
+                dmg = damage_pct(atk.dps, defn.tank, defn.max_hp)
                 if crit_check():
                     dmg = int(dmg * 1.5)
                     log.append(f"🌟 🗡 {atk.name} **CRIT** {'on' if locale == 'en' else 'lên'} {defn.name}! **-{dmg} HP**")
@@ -296,8 +313,9 @@ def resolve_round(p: BattleSide, e: BattleSide, p_choice: str, e_choice: str, lo
     elif p_choice == "D" and e_choice == "A":
         log += attack_vs_defend(e, p, locale)
     else:
-        ph = heal_amount(p)
-        eh = heal_amount(e)
+        # D + D — modest mutual recovery, capped so the fight still resolves in 10 rounds
+        ph = max(1, int(round(p.max_hp * 0.04)))
+        eh = max(1, int(round(e.max_hp * 0.04)))
         p.hp = min(p.max_hp, p.hp + ph)
         e.hp = min(e.max_hp, e.hp + eh)
         if locale == "en":
@@ -314,10 +332,13 @@ def battle_status_embed(p: BattleSide, e: BattleSide, log_lines, turn, locale: s
     else:
         turn_line = f"⚔️ **Lượt {turn}** — Hãy ra quyết định."
         last_round = "__**Lượt vừa rồi:**__"
+    pw_p = compute_power(p.tank, p.dps, p.max_hp)
+    pw_e = compute_power(e.tank, e.dps, e.max_hp)
+    wp, we = hp_bar_widths(pw_p, pw_e)
     return knight_embed(
         f"{turn_line}\n\n"
-        f"**{p.name}**\n💊 `{hp_bar(p.hp, p.max_hp)}` {max(0, p.hp)}/{p.max_hp}\n\n"
-        f"**{e.name}**\n💊 `{hp_bar(e.hp, e.max_hp)}` {max(0, e.hp)}/{e.max_hp}\n\n"
+        f"**{p.name}**\n{render_hp_line(p, wp)}\n\n"
+        f"**{e.name}**\n{render_hp_line(e, we)}\n\n"
         + ((f"{last_round}\n" + "\n".join(log_lines)) if log_lines else "")
     )
 
@@ -774,15 +795,48 @@ def _build_pvp_embed(s1, s2, turn, max_turns, header_line, log_block, locale: st
         title = f"⚔️ **Round {turn}/{max_turns}**"
     else:
         title = f"⚔️ **Lượt {turn}/{max_turns}**"
+    pw1 = compute_power(s1.tank, s1.dps, s1.max_hp)
+    pw2 = compute_power(s2.tank, s2.dps, s2.max_hp)
+    w1, w2 = hp_bar_widths(pw1, pw2)
     body = (
         f"{title}\n\n"
-        f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
-        f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}\n\n"
+        f"**{s1.name}** {render_hp_line(s1, w1)}\n"
+        f"**{s2.name}** {render_hp_line(s2, w2)}\n\n"
         f"{header_line}"
     )
     if log_block:
         body += "\n\n" + log_block
     return knight_embed(body)
+
+
+def _build_spectator_embed(s1, s2, turn, max_turns, header_line, log_block, locale: str = "vi") -> discord.Embed:
+    """Read-only spectator embed for the main channel — no buttons attached."""
+    if locale == "en":
+        title = f"👁 **Live — Round {turn}/{max_turns}** (spectator view)"
+    else:
+        title = f"👁 **Trực tiếp — Lượt {turn}/{max_turns}** (chế độ khán giả)"
+    pw1 = compute_power(s1.tank, s1.dps, s1.max_hp)
+    pw2 = compute_power(s2.tank, s2.dps, s2.max_hp)
+    w1, w2 = hp_bar_widths(pw1, pw2)
+    body = (
+        f"{title}\n\n"
+        f"**{s1.name}** {render_hp_line(s1, w1)}\n"
+        f"**{s2.name}** {render_hp_line(s2, w2)}\n\n"
+        f"{header_line}"
+    )
+    if log_block:
+        body += "\n\n" + log_block
+    return knight_embed(body)
+
+
+async def _safe_edit(message, **kwargs):
+    """Edit a message and swallow Discord exceptions to avoid breaking the battle loop."""
+    if message is None:
+        return
+    try:
+        await message.edit(**kwargs)
+    except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+        pass
 
 
 class PvpTurnView(discord.ui.View):
@@ -829,10 +883,16 @@ class PvpTurnView(discord.ui.View):
         async def sur_cb(interaction):
             if interaction.user.id not in (self.current_uid, self.other_uid):
                 msg = "You are not in this battle." if self.locale == "en" else "Ngươi không tham chiến."
-                await interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    await interaction.response.send_message(msg, ephemeral=True)
+                except (discord.NotFound, discord.HTTPException, discord.InteractionResponded):
+                    pass
                 return
             self.surrender_uid = interaction.user.id
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except (discord.NotFound, discord.HTTPException, discord.InteractionResponded):
+                pass
             if not self.future.done():
                 self.future.set_result(True)
             self.stop()
@@ -840,8 +900,20 @@ class PvpTurnView(discord.ui.View):
         self.add_item(sur)
 
     async def _set(self, interaction, c: str):
+        # Defensive: if the future was already settled (timeout or surrender raced
+        # us), still acknowledge the click so Discord doesn't show "interaction
+        # failed" on the user's screen.
+        if self.future.done():
+            try:
+                await interaction.response.defer()
+            except (discord.NotFound, discord.HTTPException, discord.InteractionResponded):
+                pass
+            return
         self.choice = c
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except (discord.NotFound, discord.HTTPException, discord.InteractionResponded):
+            pass
         if not self.future.done():
             self.future.set_result(True)
         self.stop()
@@ -860,7 +932,16 @@ def _choice_label(c: str, locale: str = "vi") -> str:
 
 
 async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
-    """Run a 1vs1 sequential PvP battle on `lobby_message` (the challenger's screen)."""
+    """Run a 1vs1 sequential PvP battle.
+
+    New flow (4 messages):
+      1) Public @everyone announcement in `channel` (top-of-channel banner).
+      2) Public spectator embed in `channel` — updates each round, NO buttons.
+      3) Private thread under `channel` with both fighters added — holds the
+         interactive UI (buttons). Only the two combatants can see this.
+      4) Public final-result announcement in `channel` (with @everyone) once
+         the duel concludes.
+    """
     locale = get_locale(gid, u1.id) if gid else "vi"
     p1d = get_player(gid, u1.id)
     p2d = get_player(gid, u2.id)
@@ -869,55 +950,86 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     sides_by_id = {u1.id: s1, u2.id: s2}
     users_by_id = {u1.id: u1, u2.id: u2}
 
-    first = random.choice([u1, u2])
-    if locale == "en":
-        intro = (
-            f"⚔️ **Duel — {u1.display_name} vs {u2.display_name}**\n\n"
-            f"**{u1.display_name}**\n"
-            f"🛡 Tank `{p1d['tank']}` | 🗡 DPS `{p1d['dps']}` | 💊 HP `{s1.max_hp}`\n\n"
-            f"**{u2.display_name}**\n"
-            f"🛡 Tank `{p2d['tank']}` | 🗡 DPS `{p2d['dps']}` | 💊 HP `{s2.max_hp}`\n\n"
-            f"🤺 **Hiệp Sĩ Hắc Ám announces:** the first to strike is **{first.display_name}**!"
-        )
-    else:
-        intro = (
-            f"⚔️ **Đại chiến — {u1.display_name} vs {u2.display_name}**\n\n"
-            f"**{u1.display_name}**\n"
-            f"🛡 Tank `{p1d['tank']}` | 🗡 DPS `{p1d['dps']}` | 💊 HP `{s1.max_hp}`\n\n"
-            f"**{u2.display_name}**\n"
-            f"🛡 Tank `{p2d['tank']}` | 🗡 DPS `{p2d['dps']}` | 💊 HP `{s2.max_hp}`\n\n"
-            f"🤺 **Hiệp Sĩ Hắc Ám thông báo:** Người tung chiêu đầu tiên là **{first.display_name}**!"
-        )
-
-    # Send the battle as a NEW PUBLIC message in the channel so the whole server can watch.
+    # ---- 1) Public @everyone announcement
     try:
-        battle_message = await channel.send(
-            content=f"{u1.mention} {u2.mention}",
-            embed=knight_embed(intro),
-            allowed_mentions=discord.AllowedMentions(users=True),
+        ann = t(gid, u1.id, "pvp_announce", c_mention=u1.mention, t_mention=u2.mention)
+        await channel.send(
+            content=ann,
+            allowed_mentions=discord.AllowedMentions(everyone=True, users=True),
         )
     except (discord.Forbidden, discord.HTTPException):
-        return
+        pass
 
-    # Update the (ephemeral) lobby message of the challenger to indicate battle has begun.
+    # ---- 2) Public spectator embed (read-only, lives in main channel)
+    waiting_line = t(gid, u1.id, "pvp_spectator_waiting")
+    spectator_msg = None
+    try:
+        spectator_msg = await channel.send(
+            embed=_build_spectator_embed(s1, s2, 0, 10, waiting_line, "", locale),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        spectator_msg = None
+
+    # ---- 3) Private thread with both fighters; interactive UI lives here
+    interactive_msg = None
+    thread = None
+    try:
+        thread_name = (f"⚔️ {u1.display_name} vs {u2.display_name}")[:100]
+        thread = await channel.create_thread(
+            name=thread_name,
+            type=discord.ChannelType.private_thread,
+            invitable=False,
+            auto_archive_duration=60,
+        )
+        try:
+            await thread.add_user(u1)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        try:
+            await thread.add_user(u2)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        intro_line = t(gid, u1.id, "pvp_thread_intro",
+                       c_mention=u1.mention, t_mention=u2.mention)
+        interactive_msg = await thread.send(embed=knight_embed(intro_line))
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        thread = None
+        # Fallback: post the interactive message directly in the channel
+        try:
+            interactive_msg = await channel.send(
+                content=f"{u1.mention} {u2.mention}",
+                embed=knight_embed(t(gid, u1.id, "pvp_thread_intro",
+                                     c_mention=u1.mention, t_mention=u2.mention)),
+                allowed_mentions=discord.AllowedMentions(users=True),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            interactive_msg = None
+
+    # Acknowledge on the challenger's old ephemeral lobby panel
     if lobby_message is not None:
         if locale == "en":
+            where = (f"private duel room <#{thread.id}>" if thread is not None
+                     else f"<#{channel.id}>")
             notice = (
-                f"⚔️ **The duel has begun publicly in <#{channel.id}>!**\n\n"
-                f"Head over to watch and play."
+                f"⚔️ **The duel has begun!**\n\n"
+                f"Head to {where} to play. Spectators can watch the live status in "
+                f"<#{channel.id}>."
             )
         else:
+            where = (f"phòng đấu riêng <#{thread.id}>" if thread is not None
+                     else f"<#{channel.id}>")
             notice = (
-                f"⚔️ **Trận đấu đã bắt đầu công khai tại <#{channel.id}>!**\n\n"
-                f"Hãy qua đó để theo dõi và thi đấu."
+                f"⚔️ **Trận đấu đã bắt đầu!**\n\n"
+                f"Hãy vào {where} để thi đấu. Khán giả theo dõi trực tiếp tại "
+                f"<#{channel.id}>."
             )
-        try:
-            await lobby_message.edit(embed=knight_embed(notice), view=None)
-        except (discord.NotFound, discord.HTTPException):
-            pass
+        await _safe_edit(lobby_message, embed=knight_embed(notice), view=None)
 
-    lobby_message = battle_message
-    await asyncio.sleep(2.5)
+    # If we have nowhere to host the interactive UI, abort gracefully.
+    if interactive_msg is None:
+        return
+
+    await asyncio.sleep(2.0)
 
     MAX_TURNS = 10
     surrender_uid: int | None = None
@@ -935,13 +1047,16 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             else f"🎯 Đến lượt **{first.display_name}** ra chiêu."
         )
         view1 = PvpTurnView(first.id, second.id, locale, gid)
-        try:
-            await lobby_message.edit(
-                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, first_header, persistent_log, locale),
-                view=view1,
-            )
-        except (discord.NotFound, discord.HTTPException):
-            return
+        await _safe_edit(
+            interactive_msg,
+            embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, first_header, persistent_log, locale),
+            view=view1,
+        )
+        spec_header = t(gid, u1.id, "pvp_spectator_round", turn=turn, max_turns=MAX_TURNS)
+        await _safe_edit(
+            spectator_msg,
+            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, spec_header, persistent_log, locale),
+        )
         try:
             await asyncio.wait_for(view1.future, timeout=61)
         except asyncio.TimeoutError:
@@ -960,13 +1075,11 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
                  f"🎯 Đến lượt **{second.display_name}** chọn."
         )
         view2 = PvpTurnView(second.id, first.id, locale, gid)
-        try:
-            await lobby_message.edit(
-                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, between_header, persistent_log, locale),
-                view=view2,
-            )
-        except (discord.NotFound, discord.HTTPException):
-            return
+        await _safe_edit(
+            interactive_msg,
+            embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, between_header, persistent_log, locale),
+            view=view2,
+        )
         try:
             await asyncio.wait_for(view2.future, timeout=61)
         except asyncio.TimeoutError:
@@ -995,13 +1108,15 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             )
             result_header = "⚔️ Kết quả lượt đấu:"
         persistent_log = choices_line + "\n" + "\n".join(round_log)
-        try:
-            await lobby_message.edit(
-                embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
-                view=None,
-            )
-        except (discord.NotFound, discord.HTTPException):
-            return
+        await _safe_edit(
+            interactive_msg,
+            embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
+            view=None,
+        )
+        await _safe_edit(
+            spectator_msg,
+            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
+        )
 
         if s1.hp <= 0 or s2.hp <= 0:
             break
@@ -1093,18 +1208,39 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     if new2:
         result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
 
+    # Final round summary line for the spectator embed
+    if locale == "en":
+        final_spec_header = "🏁 **Match concluded** — see the final announcement below."
+    else:
+        final_spec_header = "🏁 **Trận đấu kết thúc** — xem thông báo kết quả phía dưới."
+    await _safe_edit(
+        spectator_msg,
+        embed=_build_spectator_embed(s1, s2, MAX_TURNS, MAX_TURNS, final_spec_header,
+                                     persistent_log, locale),
+    )
+
+    # Wrap up the private interactive panel — drop the buttons, show result.
+    await _safe_edit(
+        interactive_msg,
+        embed=knight_embed(result),
+        view=PostBattleView(u1, gid, allowed_ids={u1.id, u2.id}, show_again=False),
+    )
+
+    # ---- 4) Public final announcement (separate @everyone message)
     try:
-        await lobby_message.edit(
-            content=f"{u1.mention} {u2.mention}",
+        final_ann = t(gid, u1.id, "pvp_final_announce",
+                      c_mention=u1.mention, t_mention=u2.mention)
+        await channel.send(
+            content=final_ann,
             embed=knight_embed(result),
-            view=PostBattleView(u1, gid, allowed_ids={u1.id, u2.id}, show_again=False),
+            allowed_mentions=discord.AllowedMentions(everyone=True, users=True),
         )
-    except (discord.NotFound, discord.HTTPException):
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+    # Archive & lock the private duel room so it cleans up after itself.
+    if thread is not None:
         try:
-            await channel.send(
-                content=f"{u1.mention} {u2.mention}",
-                embed=knight_embed(result),
-                view=PostBattleView(u1, gid, allowed_ids={u1.id, u2.id}, show_again=False),
-            )
+            await thread.edit(archived=True, locked=True)
         except (discord.Forbidden, discord.HTTPException):
             pass
