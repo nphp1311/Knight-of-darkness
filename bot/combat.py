@@ -1,6 +1,8 @@
 """Combat: PvE (monsters) and PvP (player vs player)."""
 import asyncio
 import random
+import time
+
 import discord
 
 from .storage import get_player, persist, get_locale
@@ -600,6 +602,22 @@ class PvpTargetSelectView(discord.ui.View):
                     msg = "💀 That person is no longer in this realm." if cur == "en" else "💀 Kẻ đó không còn ở trong vương quốc này."
                     await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
                     return
+                # Post-duel cooldown gate — challenger AND target must be free.
+                cur_locale = get_locale(interaction.guild_id, self.challenger.id)
+                ch_left = pvp_cooldown_remaining(interaction.guild_id, self.challenger.id)
+                tg_left = pvp_cooldown_remaining(interaction.guild_id, target.id)
+                if ch_left > 0:
+                    await interaction.response.send_message(
+                        embed=knight_embed(_cooldown_msg(self.challenger.display_name, ch_left, cur_locale)),
+                        ephemeral=True,
+                    )
+                    return
+                if tg_left > 0:
+                    await interaction.response.send_message(
+                        embed=knight_embed(_cooldown_msg(target.display_name, tg_left, cur_locale)),
+                        ephemeral=True,
+                    )
+                    return
                 await send_pvp_invite(interaction, self.challenger, target)
 
             select.callback = pick_cb
@@ -712,8 +730,22 @@ class PvpInviteView(discord.ui.View):
             style=discord.ButtonStyle.success,
         )
         async def accept_cb(interaction):
-            self.responded = True
             locale_tg = get_locale(self.guild_id, self.target.id)
+            # Cooldown gate — neither fighter may start a new duel until both
+            # are free (this matches the post-duel thread-cleanup window).
+            ch_left = pvp_cooldown_remaining(self.guild_id, self.challenger.id)
+            tg_left = pvp_cooldown_remaining(self.guild_id, self.target.id)
+            if ch_left > 0 or tg_left > 0:
+                blocked = self.challenger if ch_left >= tg_left else self.target
+                secs = max(ch_left, tg_left)
+                await interaction.response.edit_message(
+                    embed=knight_embed(_cooldown_msg(blocked.display_name, secs, locale_tg)),
+                    view=None,
+                )
+                self.responded = True
+                self.stop()
+                return
+            self.responded = True
             if locale_tg == "en":
                 ack = f"⚔️ Challenge accepted! Head to **#{self.channel.name}** to fight."
             else:
@@ -809,12 +841,19 @@ def _build_pvp_embed(s1, s2, turn, max_turns, header_line, log_block, locale: st
     return knight_embed(body)
 
 
-def _build_spectator_embed(s1, s2, turn, max_turns, header_line, log_block, locale: str = "vi") -> discord.Embed:
-    """Read-only spectator embed for the main channel — no buttons attached."""
+def _build_spectator_embed(s1, s2, turn, max_turns, header_line,
+                           narration_lines: list[str], locale: str = "vi") -> discord.Embed:
+    """Read-only spectator embed for the main channel — no buttons attached.
+
+    `narration_lines` is the accumulated round-by-round commentary so the whole
+    server can follow the duel by reading just this single message.
+    """
     if locale == "en":
-        title = f"👁 **Live — Round {turn}/{max_turns}** (spectator view)"
+        title = f"👁 **Live — Round {max(0, turn)}/{max_turns}** (spectator view)"
+        log_label = "📜 **Battle log:**"
     else:
-        title = f"👁 **Trực tiếp — Lượt {turn}/{max_turns}** (chế độ khán giả)"
+        title = f"👁 **Trực tiếp — Lượt {max(0, turn)}/{max_turns}** (chế độ khán giả)"
+        log_label = "📜 **Diễn biến trận đấu:**"
     pw1 = compute_power(s1.tank, s1.dps, s1.max_hp)
     pw2 = compute_power(s2.tank, s2.dps, s2.max_hp)
     w1, w2 = hp_bar_widths(pw1, pw2)
@@ -824,8 +863,14 @@ def _build_spectator_embed(s1, s2, turn, max_turns, header_line, log_block, loca
         f"**{s2.name}** {render_hp_line(s2, w2)}\n\n"
         f"{header_line}"
     )
-    if log_block:
-        body += "\n\n" + log_block
+    # Accumulated narration (keep the embed under Discord's 4096-char limit by
+    # showing the most recent rounds first, oldest dropped if needed).
+    if narration_lines:
+        joined = "\n".join(narration_lines)
+        if len(joined) > 3500:
+            # keep the tail
+            joined = "…\n" + joined[-3400:]
+        body += f"\n\n{log_label}\n{joined}"
     return knight_embed(body)
 
 
@@ -931,6 +976,87 @@ def _choice_label(c: str, locale: str = "vi") -> str:
     return "🛡 defend" if locale == "en" else "🛡 phòng thủ"
 
 
+# ---------------------------------------------------------------------------
+# Active-PvP registry — lets admins force-end ongoing duels via /end_pvp.
+# Keyed by (guild_id, channel_id). Each entry holds a cancel asyncio.Event,
+# the thread (if any), and the two combatants for messaging.
+# ---------------------------------------------------------------------------
+_ACTIVE_PVP: dict[tuple[int, int], dict] = {}
+
+
+# ---------------------------------------------------------------------------
+# Post-duel cooldown — fighters cannot start / accept a new PvP for this many
+# seconds after a duel ends (matches the duel-thread cleanup window).
+# ---------------------------------------------------------------------------
+PVP_COOLDOWN_SECS = 15
+_PVP_COOLDOWN: dict[tuple[int, int], float] = {}  # (gid, uid) -> ts when free
+
+
+def _set_pvp_cooldown(gid: int, uid: int, secs: int = PVP_COOLDOWN_SECS) -> None:
+    if gid is None or uid is None:
+        return
+    _PVP_COOLDOWN[(gid, uid)] = time.time() + secs
+
+
+def pvp_cooldown_remaining(gid: int, uid: int) -> int:
+    """Seconds remaining on the user's post-duel PvP cooldown (0 if free)."""
+    ts = _PVP_COOLDOWN.get((gid, uid))
+    if not ts:
+        return 0
+    rem = ts - time.time()
+    if rem <= 0:
+        _PVP_COOLDOWN.pop((gid, uid), None)
+        return 0
+    return int(rem) + 1
+
+
+def _cooldown_msg(name: str, secs: int, locale: str) -> str:
+    if locale == "en":
+        return (f"⏳ **{name}** is still recovering from the previous duel — "
+                f"please wait **{secs}s** before starting another PvP match.")
+    return (f"⏳ **{name}** vẫn đang hồi sức sau trận đấu vừa rồi — "
+            f"hãy chờ **{secs} giây** rồi mới có thể tham gia trận PvP kế tiếp.")
+
+
+def get_active_pvp(guild_id: int, channel_id: int):
+    return _ACTIVE_PVP.get((guild_id, channel_id))
+
+
+async def end_pvp_in_channel(guild_id: int, channel_id: int) -> bool:
+    """Signal an ongoing PvP duel in the given channel to stop ASAP.
+
+    Returns True if a duel was found and signalled, False otherwise.
+    """
+    state = _ACTIVE_PVP.get((guild_id, channel_id))
+    if not state:
+        return False
+    state["cancel"].set()
+    # Also wake any pending turn future so the loop unblocks immediately.
+    for fut_attr in ("view1_future", "view2_future"):
+        fut = state.get(fut_attr)
+        if fut is not None and not fut.done():
+            try:
+                fut.set_result(None)
+            except Exception:
+                pass
+    return True
+
+
+async def _wait_for_choice_or_cancel(view_future, cancel_event, timeout: float):
+    """Wait for a turn choice OR a cancel signal, whichever comes first."""
+    cancel_task = asyncio.create_task(cancel_event.wait())
+    choice_task = asyncio.ensure_future(view_future)
+    try:
+        await asyncio.wait(
+            {cancel_task, choice_task},
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        if not cancel_task.done():
+            cancel_task.cancel()
+
+
 async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     """Run a 1vs1 sequential PvP battle.
 
@@ -961,11 +1087,15 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
         pass
 
     # ---- 2) Public spectator embed (read-only, lives in main channel)
+    # `spectator_narration` accumulates round-by-round commentary; outsiders
+    # only need to read this single embed to follow the entire duel.
+    spectator_narration: list[str] = []
     waiting_line = t(gid, u1.id, "pvp_spectator_waiting")
     spectator_msg = None
     try:
         spectator_msg = await channel.send(
-            embed=_build_spectator_embed(s1, s2, 0, 10, waiting_line, "", locale),
+            embed=_build_spectator_embed(s1, s2, 0, 10, waiting_line,
+                                         spectator_narration, locale),
         )
     except (discord.Forbidden, discord.HTTPException):
         spectator_msg = None
@@ -1029,13 +1159,30 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     if interactive_msg is None:
         return
 
+    # Register this duel so /end_pvp can cancel it.
+    cancel_event = asyncio.Event()
+    registry_key = (gid, channel.id) if gid else None
+    if registry_key is not None:
+        _ACTIVE_PVP[registry_key] = {
+            "cancel": cancel_event,
+            "thread": thread,
+            "u1": u1,
+            "u2": u2,
+            "view1_future": None,
+            "view2_future": None,
+        }
+
     await asyncio.sleep(2.0)
 
     MAX_TURNS = 10
     surrender_uid: int | None = None
+    cancelled_by_admin = False
     persistent_log = ""
 
     for turn in range(1, MAX_TURNS + 1):
+        if cancel_event.is_set():
+            cancelled_by_admin = True
+            break
         # Random first mover each round
         first = random.choice([u1, u2])
         second = u2 if first.id == u1.id else u1
@@ -1055,12 +1202,17 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
         spec_header = t(gid, u1.id, "pvp_spectator_round", turn=turn, max_turns=MAX_TURNS)
         await _safe_edit(
             spectator_msg,
-            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, spec_header, persistent_log, locale),
+            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, spec_header,
+                                         spectator_narration, locale),
         )
-        try:
-            await asyncio.wait_for(view1.future, timeout=61)
-        except asyncio.TimeoutError:
-            pass
+        if registry_key is not None:
+            _ACTIVE_PVP[registry_key]["view1_future"] = view1.future
+        await _wait_for_choice_or_cancel(view1.future, cancel_event, timeout=61)
+        if registry_key is not None:
+            _ACTIVE_PVP[registry_key]["view1_future"] = None
+        if cancel_event.is_set():
+            cancelled_by_admin = True
+            break
         if view1.surrender_uid is not None:
             surrender_uid = view1.surrender_uid
             break
@@ -1080,10 +1232,14 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, between_header, persistent_log, locale),
             view=view2,
         )
-        try:
-            await asyncio.wait_for(view2.future, timeout=61)
-        except asyncio.TimeoutError:
-            pass
+        if registry_key is not None:
+            _ACTIVE_PVP[registry_key]["view2_future"] = view2.future
+        await _wait_for_choice_or_cancel(view2.future, cancel_event, timeout=61)
+        if registry_key is not None:
+            _ACTIVE_PVP[registry_key]["view2_future"] = None
+        if cancel_event.is_set():
+            cancelled_by_admin = True
+            break
         if view2.surrender_uid is not None:
             surrender_uid = view2.surrender_uid
             break
@@ -1108,6 +1264,12 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             )
             result_header = "⚔️ Kết quả lượt đấu:"
         persistent_log = choices_line + "\n" + "\n".join(round_log)
+
+        # Append this round's commentary to the running spectator narration.
+        round_label = (f"__**Round {turn}**__" if locale == "en"
+                       else f"__**Lượt {turn}**__")
+        spectator_narration.append(f"{round_label}\n{persistent_log}")
+
         await _safe_edit(
             interactive_msg,
             embed=_build_pvp_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
@@ -1115,7 +1277,8 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
         )
         await _safe_edit(
             spectator_msg,
-            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, result_header, persistent_log, locale),
+            embed=_build_spectator_embed(s1, s2, turn, MAX_TURNS, result_header,
+                                         spectator_narration, locale),
         )
 
         if s1.hp <= 0 or s2.hp <= 0:
@@ -1126,7 +1289,20 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     p1d = get_player(gid, u1.id)
     p2d = get_player(gid, u2.id)
 
-    if surrender_uid is not None:
+    if cancelled_by_admin:
+        if locale == "en":
+            result = (
+                "🛑 **Duel cancelled by an administrator.**\n\n"
+                "The match has been called off — no winner is recorded and "
+                "neither fighter's stats are affected."
+            )
+        else:
+            result = (
+                "🛑 **Trận đấu đã bị quản trị viên hủy bỏ.**\n\n"
+                "Trận đấu kết thúc giữa chừng — không ghi nhận người thắng/thua "
+                "và chỉ số của cả hai đấu sĩ không thay đổi."
+            )
+    elif surrender_uid is not None:
         loser_id = surrender_uid
         winner_id = u2.id if loser_id == u1.id else u1.id
         if locale == "en":
@@ -1200,23 +1376,32 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             p2d["pvp_streak"] = p2d.get("pvp_streak", 0) + 1
             p1d["pvp_streak"] = 0
 
-    new1 = unlock_achievements(p1d)
-    new2 = unlock_achievements(p2d)
-    persist()
-    if new1:
-        result += f"\n\n<@{u1.id}>" + announce_unlocks(new1, locale)
-    if new2:
-        result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
+    if cancelled_by_admin:
+        # No achievements / no persistence — preserve original state.
+        pass
+    else:
+        new1 = unlock_achievements(p1d)
+        new2 = unlock_achievements(p2d)
+        persist()
+        if new1:
+            result += f"\n\n<@{u1.id}>" + announce_unlocks(new1, locale)
+        if new2:
+            result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
 
     # Final round summary line for the spectator embed
-    if locale == "en":
+    if cancelled_by_admin:
+        if locale == "en":
+            final_spec_header = "🛑 **Duel cancelled by an administrator.**"
+        else:
+            final_spec_header = "🛑 **Trận đấu đã bị quản trị viên hủy bỏ.**"
+    elif locale == "en":
         final_spec_header = "🏁 **Match concluded** — see the final announcement below."
     else:
         final_spec_header = "🏁 **Trận đấu kết thúc** — xem thông báo kết quả phía dưới."
     await _safe_edit(
         spectator_msg,
         embed=_build_spectator_embed(s1, s2, MAX_TURNS, MAX_TURNS, final_spec_header,
-                                     persistent_log, locale),
+                                     spectator_narration, locale),
     )
 
     # Wrap up the private interactive panel — drop the buttons, show result.
@@ -1228,8 +1413,14 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
 
     # ---- 4) Public final announcement (separate @everyone message)
     try:
-        final_ann = t(gid, u1.id, "pvp_final_announce",
-                      c_mention=u1.mention, t_mention=u2.mention)
+        if cancelled_by_admin:
+            if locale == "en":
+                final_ann = "🛑 **PvP duel cancelled by an administrator.**"
+            else:
+                final_ann = "🛑 **Trận đấu PvP đã bị quản trị viên hủy bỏ.**"
+        else:
+            final_ann = t(gid, u1.id, "pvp_final_announce",
+                          c_mention=u1.mention, t_mention=u2.mention)
         await channel.send(
             content=final_ann,
             embed=knight_embed(result),
@@ -1238,9 +1429,30 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
     except (discord.Forbidden, discord.HTTPException):
         pass
 
-    # Archive & lock the private duel room so it cleans up after itself.
+    # Apply post-duel cooldown — for the next 15s neither fighter may start
+    # or accept a new PvP match (matches the thread-cleanup window).
+    if gid is not None:
+        _set_pvp_cooldown(gid, u1.id, PVP_COOLDOWN_SECS)
+        _set_pvp_cooldown(gid, u2.id, PVP_COOLDOWN_SECS)
+
+    # Delete the private duel room. Default grace period is 15 seconds so the
+    # two fighters can review the final panel; if an admin cancelled the duel
+    # we tear it down right away.
     if thread is not None:
+        delay = 0 if cancelled_by_admin else PVP_COOLDOWN_SECS
         try:
-            await thread.edit(archived=True, locked=True)
-        except (discord.Forbidden, discord.HTTPException):
+            await asyncio.sleep(delay)
+        except Exception:
             pass
+        try:
+            await thread.delete()
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            # Fall back to archive+lock if we lack Manage Threads permission.
+            try:
+                await thread.edit(archived=True, locked=True)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    # Unregister the duel so /end_pvp can't act on a stale entry.
+    if registry_key is not None:
+        _ACTIVE_PVP.pop(registry_key, None)
