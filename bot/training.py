@@ -4,100 +4,134 @@ import random
 import discord
 
 from .storage import get_player, persist, get_locale
-from .core import knight_embed, go_lobby, exit_bot, apply_training_bonus, training_bonus_pct
+from .core import (
+    knight_embed, t, go_lobby, exit_bot,
+    apply_training_bonus, training_bonus_pct,
+)
+
+
+def _add_lobby_exit(view: discord.ui.View, user, gid, row: int = 1):
+    lobby = discord.ui.Button(
+        label=t(gid, user.id, "btn_lobby"),
+        style=discord.ButtonStyle.secondary, row=row,
+    )
+    async def lobby_cb(interaction):
+        await go_lobby(interaction, user)
+    lobby.callback = lobby_cb
+    view.add_item(lobby)
+
+    exitb = discord.ui.Button(
+        label=t(gid, user.id, "btn_exit"),
+        style=discord.ButtonStyle.danger, row=row,
+    )
+    async def exit_cb(interaction):
+        await exit_bot(interaction)
+    exitb.callback = exit_cb
+    view.add_item(exitb)
 
 
 # ============== TRAIN MENU ==============
 class TrainView(discord.ui.View):
-    def __init__(self, user: discord.User):
+    def __init__(self, user: discord.User, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        tank_btn = discord.ui.Button(
+            label=t(gid, user.id, "btn_train_tank"),
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        async def tank_cb(interaction):
+            locale = get_locale(interaction.guild_id, self.user.id)
+            if locale == "en":
+                text = (
+                    "🛡 Training begins. Your opponent: **☠️ Bone Duelist**. Prepare yourself!\n\n"
+                    "Guide: Watch the **color of the incoming strike**. "
+                    "Press the 🛡 button matching the color in the prompt to dodge.\n"
+                    "One session lasts **5 rounds**, roughly **3 seconds** each."
+                )
+            else:
+                text = (
+                    "🛡 Bài luyện tập sắp đầu. Đối thủ của ngươi là **☠️ Đấu sĩ xương khô**. Hãy chuẩn bị sẵn sàng!\n\n"
+                    "Hướng dẫn: Hãy chú ý **màu của chiêu thức** sắp được tung ra. "
+                    "Bấm nút 🛡 trùng màu với màu trong lời thoại để né đòn.\n"
+                    "Một lần luyện tập kéo dài **5 lượt**, mỗi lượt khoảng **3 giây**."
+                )
+            await interaction.response.edit_message(
+                embed=knight_embed(text),
+                view=TankReadyView(self.user, interaction.guild_id),
+            )
+        tank_btn.callback = tank_cb
+        self.add_item(tank_btn)
+
+        dps_btn = discord.ui.Button(
+            label=t(gid, user.id, "btn_train_dps"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def dps_cb(interaction):
+            locale = get_locale(interaction.guild_id, self.user.id)
+            if locale == "en":
+                text = (
+                    "🗡 **🤺 The Dark Knight demonstrates the techniques himself. Pay close attention!**\n\n"
+                    "🔥 Do not falter. One wrong beat… and you will die.\n\n"
+                    "I will show you a sequence of 4 moves. You must press them **in exact order** within **10 seconds**.\n"
+                    "One session lasts **5 rounds**."
+                )
+            else:
+                text = (
+                    "🗡 **🤺 Hiệp Sĩ Hắc Ám tự mình hướng dẫn chiêu thức cho ngươi. Hãy tập trung quan sát!**\n\n"
+                    "🔥 Đừng dừng lại. Chỉ một nhịp sai… và ngươi sẽ mất mạng.\n\n"
+                    "Ta sẽ ra một chuỗi 4 chiêu thức. Ngươi phải bấm **đúng thứ tự** trong **10 giây**.\n"
+                    "Một lần luyện tập kéo dài **5 lượt**."
+                )
+            await interaction.response.edit_message(
+                embed=knight_embed(text),
+                view=DpsReadyView(self.user, interaction.guild_id),
+            )
+        dps_btn.callback = dps_cb
+        self.add_item(dps_btn)
+
+        potion_btn = discord.ui.Button(
+            label=t(gid, user.id, "btn_train_potion"),
+            style=discord.ButtonStyle.success, row=0,
+        )
+        async def potion_cb(interaction):
+            locale = get_locale(interaction.guild_id, self.user.id)
+            if locale == "en":
+                text = (
+                    "⚗️ 🤺 The phantom knight leads you into the **Alchemy Forge**:\n\n"
+                    "You need exactly **three ingredients** to brew each batch of Potions. "
+                    "**Each ingredient affects the success chance, "
+                    "but the same ingredient may yield different quality each time — take note.**\n"
+                    "The more Potions you carry, the higher your odds of survival on the battlefield.\n\n"
+                    "**Choose your ingredients:**"
+                )
+            else:
+                text = (
+                    "⚗️ 🤺 Hiệp sĩ ma dẫn ngươi vào **Lò giả kim**:\n\n"
+                    "Ngươi cần gom đúng **ba nguyên liệu** để pha chế mỗi mẻ Thần dược. "
+                    "**Mỗi loại nguyên liệu sẽ ảnh hưởng đến xác suất thành công, "
+                    "nhưng cùng một loại nguyên liệu cũng sẽ có chất lượng khác nhau – hãy lưu ý điều này.**\n"
+                    "Kẻ nào sở hữu càng nhiều Thần dược, tỉ lệ sinh tồn của hắn trên chiến trường càng cao.\n\n"
+                    "**Hãy chọn nguyên liệu:**"
+                )
+            await interaction.response.edit_message(
+                embed=knight_embed(text),
+                view=PotionView(self.user),
+            )
+        potion_btn.callback = potion_cb
+        self.add_item(potion_btn)
+
+        _add_lobby_exit(self, user, gid, row=1)
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.user.id:
-            locale = get_locale(interaction.guild_id, interaction.user.id)
-            msg = "Only the one who summoned me may choose." if locale == "en" else "Chỉ người triệu hồi ta mới có thể chọn."
-            await interaction.response.send_message(msg, ephemeral=True)
+            await interaction.response.send_message(
+                t(interaction.guild_id, interaction.user.id, "msg_only_summoner"),
+                ephemeral=True,
+            )
             return False
         return True
-
-    @discord.ui.button(label="Nâng 🛡 Tank / Raise Tank", style=discord.ButtonStyle.danger, row=0)
-    async def tank(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        if locale == "en":
-            text = (
-                "🛡 Training begins. Your opponent: **☠️ Bone Duelist**. Prepare yourself!\n\n"
-                "Guide: Watch the **color of the incoming strike**. "
-                "Press the 🛡 button matching the color in the prompt to dodge.\n"
-                "One session lasts **5 rounds**, roughly **3 seconds** each."
-            )
-        else:
-            text = (
-                "🛡 Bài luyện tập sắp đầu. Đối thủ của ngươi là **☠️ Đấu sĩ xương khô**. Hãy chuẩn bị sẵn sàng!\n\n"
-                "Hướng dẫn: Hãy chú ý **màu của chiêu thức** sắp được tung ra. "
-                "Bấm nút 🛡 trùng màu với màu trong lời thoại để né đòn.\n"
-                "Một lần luyện tập kéo dài **5 lượt**, mỗi lượt khoảng **3 giây**."
-            )
-        await interaction.response.edit_message(
-            embed=knight_embed(text),
-            view=TankReadyView(self.user),
-        )
-
-    @discord.ui.button(label="Nâng 🗡 DPS / Raise DPS", style=discord.ButtonStyle.primary, row=0)
-    async def dps(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        if locale == "en":
-            text = (
-                "🗡 **🤺 The Dark Knight demonstrates the techniques himself. Pay close attention!**\n\n"
-                "🔥 Do not falter. One wrong beat… and you will die.\n\n"
-                "I will show you a sequence of 4 moves. You must press them **in exact order** within **10 seconds**.\n"
-                "One session lasts **5 rounds**."
-            )
-        else:
-            text = (
-                "🗡 **🤺 Hiệp Sĩ Hắc Ám tự mình hướng dẫn chiêu thức cho ngươi. Hãy tập trung quan sát!**\n\n"
-                "🔥 Đừng dừng lại. Chỉ một nhịp sai… và ngươi sẽ mất mạng.\n\n"
-                "Ta sẽ ra một chuỗi 4 chiêu thức. Ngươi phải bấm **đúng thứ tự** trong **10 giây**.\n"
-                "Một lần luyện tập kéo dài **5 lượt**."
-            )
-        await interaction.response.edit_message(
-            embed=knight_embed(text),
-            view=DpsReadyView(self.user),
-        )
-
-    @discord.ui.button(label="Pha chế 💊 Thần dược / Brew Potions", style=discord.ButtonStyle.success, row=0)
-    async def potion(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        if locale == "en":
-            text = (
-                "⚗️ 🤺 The phantom knight leads you into the **Alchemy Forge**:\n\n"
-                "You need exactly **three ingredients** to brew each batch of Potions. "
-                "**Each ingredient affects the success chance, "
-                "but the same ingredient may yield different quality each time — take note.**\n"
-                "The more Potions you carry, the higher your odds of survival on the battlefield.\n\n"
-                "**Choose your ingredients:**"
-            )
-        else:
-            text = (
-                "⚗️ 🤺 Hiệp sĩ ma dẫn ngươi vào **Lò giả kim**:\n\n"
-                "Ngươi cần gom đúng **ba nguyên liệu** để pha chế mỗi mẻ Thần dược. "
-                "**Mỗi loại nguyên liệu sẽ ảnh hưởng đến xác suất thành công, "
-                "nhưng cùng một loại nguyên liệu cũng sẽ có chất lượng khác nhau – hãy lưu ý điều này.**\n"
-                "Kẻ nào sở hữu càng nhiều Thần dược, tỉ lệ sinh tồn của hắn trên chiến trường càng cao.\n\n"
-                "**Hãy chọn nguyên liệu:**"
-            )
-        await interaction.response.edit_message(
-            embed=knight_embed(text),
-            view=PotionView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=1)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=1)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 # ============== TANK ==============
@@ -112,10 +146,10 @@ COLOR_LABELS = {
     COLOR_YELLOW: ("🟡 vàng", "🟡 yellow"),
 }
 DIRECTIONS = {
-    COLOR_RED:    ("◀️ Né trái / Left",   discord.ButtonStyle.danger),
-    COLOR_GREEN:  ("⏸️ Đứng yên / Still",  discord.ButtonStyle.success),
-    COLOR_BLUE:   ("▶️ Né phải / Right",   discord.ButtonStyle.primary),
-    COLOR_YELLOW: ("🔼 Nhảy lên / Jump",  discord.ButtonStyle.secondary),
+    COLOR_RED:    ("btn_tank_left",  discord.ButtonStyle.danger),
+    COLOR_GREEN:  ("btn_tank_still", discord.ButtonStyle.success),
+    COLOR_BLUE:   ("btn_tank_right", discord.ButtonStyle.primary),
+    COLOR_YELLOW: ("btn_tank_jump",  discord.ButtonStyle.secondary),
 }
 
 
@@ -125,29 +159,29 @@ def _color_label(color: str, locale: str = "vi") -> str:
 
 
 class TankReadyView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=120)
         self.user = user
+        gid = guild_id
+
+        ready = discord.ui.Button(
+            label=t(gid, user.id, "tank_ready_btn"),
+            style=discord.ButtonStyle.success, row=0,
+        )
+        async def go_cb(interaction):
+            await interaction.response.defer()
+            await run_tank_session(interaction, self.user)
+        ready.callback = go_cb
+        self.add_item(ready)
+
+        _add_lobby_exit(self, user, gid, row=1)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="💥 Đã rõ / Ready", style=discord.ButtonStyle.success, row=0)
-    async def go(self, interaction, button):
-        await interaction.response.defer()
-        await run_tank_session(interaction, self.user)
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=1)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=1)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
-
 
 class TankRoundView(discord.ui.View):
-    def __init__(self, user, hint_color, locale: str = "vi"):
+    def __init__(self, user, hint_color, locale: str = "vi", guild_id=None):
         super().__init__(timeout=10)
         self.user = user
         self.hint_color = hint_color
@@ -155,12 +189,17 @@ class TankRoundView(discord.ui.View):
         self.choice = None
         self.future: asyncio.Future = asyncio.get_event_loop().create_future()
 
-        for color, (label, style) in DIRECTIONS.items():
-            btn = discord.ui.Button(label=label, style=style)
+        for color, (label_key, style) in DIRECTIONS.items():
+            btn = discord.ui.Button(
+                label=t(guild_id, user.id, label_key),
+                style=style,
+            )
             async def cb(interaction, c=color):
                 if interaction.user.id != self.user.id:
-                    msg = "Not your turn." if self.locale == "en" else "Đây không phải lượt của ngươi."
-                    await interaction.response.send_message(msg, ephemeral=True)
+                    await interaction.response.send_message(
+                        t(interaction.guild_id, interaction.user.id, "msg_not_your_turn"),
+                        ephemeral=True,
+                    )
                     return
                 self.choice = c
                 await interaction.response.defer()
@@ -196,7 +235,7 @@ async def run_tank_session(interaction, user):
                 f"ngươi sẽ né phía nào?\n\nBấm nút trùng màu để né."
             )
         embed = knight_embed(text)
-        view = TankRoundView(user, hint_color, locale)
+        view = TankRoundView(user, hint_color, locale, interaction.guild_id)
         if msg is None:
             await interaction.edit_original_response(embed=embed, view=view)
             msg = await interaction.original_response()
@@ -240,7 +279,7 @@ async def run_tank_session(interaction, user):
     title = "**🛡 Tank Training Result**" if locale == "en" else "**Kết quả luyện tập 🛡 Tank**"
     await msg.edit(
         embed=knight_embed(f"{title}\n\n{msg_text}"),
-        view=AfterTrainView(user),
+        view=AfterTrainView(user, interaction.guild_id),
     )
 
 
@@ -249,25 +288,25 @@ DPS_EMOJIS = ["🗡", "⚔️", "💥", "🏹"]
 
 
 class DpsReadyView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=120)
         self.user = user
+        gid = guild_id
+
+        ready = discord.ui.Button(
+            label=t(gid, user.id, "dps_ready_btn"),
+            style=discord.ButtonStyle.success, row=0,
+        )
+        async def go_cb(interaction):
+            await interaction.response.defer()
+            await run_dps_session(interaction, self.user)
+        ready.callback = go_cb
+        self.add_item(ready)
+
+        _add_lobby_exit(self, user, gid, row=1)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="💥 Đã rõ / Ready", style=discord.ButtonStyle.success, row=0)
-    async def go(self, interaction, button):
-        await interaction.response.defer()
-        await run_dps_session(interaction, self.user)
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=1)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=1)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
 
 
 class DpsRoundView(discord.ui.View):
@@ -286,8 +325,10 @@ class DpsRoundView(discord.ui.View):
             btn = discord.ui.Button(label=emoji_label, style=discord.ButtonStyle.primary)
             async def cb(interaction, e=emoji_label):
                 if interaction.user.id != self.user.id:
-                    msg = "Not your turn." if self.locale == "en" else "Đây không phải lượt của ngươi."
-                    await interaction.response.send_message(msg, ephemeral=True)
+                    await interaction.response.send_message(
+                        t(interaction.guild_id, interaction.user.id, "msg_not_your_turn"),
+                        ephemeral=True,
+                    )
                     return
                 await interaction.response.defer()
                 if self.future.done():
@@ -368,7 +409,7 @@ async def run_dps_session(interaction, user):
         title = f"**Kết quả luyện tập 🗡 DPS** (sai {fails}/5 lượt)"
     await msg.edit(
         embed=knight_embed(f"{title}\n\n{text}"),
-        view=AfterTrainView(user),
+        view=AfterTrainView(user, interaction.guild_id),
     )
 
 
@@ -393,10 +434,12 @@ class PotionView(discord.ui.View):
         self.user = user
         self.picked: list[dict] = []
         self._locale: str = "vi"
+        self._guild_id = None
         self._build()
 
     def _build(self):
         self.clear_items()
+        gid = self._guild_id
         for idx, ing in enumerate(INGREDIENTS):
             btn = discord.ui.Button(
                 label=_ingredient_label(ing, self._locale),
@@ -407,6 +450,7 @@ class PotionView(discord.ui.View):
                 if interaction.user.id != self.user.id:
                     return
                 self._locale = get_locale(interaction.guild_id, self.user.id)
+                self._guild_id = interaction.guild_id
                 if len(self.picked) >= 3:
                     if self._locale == "en":
                         warn = (
@@ -439,6 +483,7 @@ class PotionView(discord.ui.View):
             if interaction.user.id != self.user.id:
                 return
             self._locale = get_locale(interaction.guild_id, self.user.id)
+            self._guild_id = interaction.guild_id
             await self._brew(interaction)
         brew.callback = brew_cb
         self.add_item(brew)
@@ -449,19 +494,20 @@ class PotionView(discord.ui.View):
             if interaction.user.id != self.user.id:
                 return
             self._locale = get_locale(interaction.guild_id, self.user.id)
+            self._guild_id = interaction.guild_id
             self.picked = []
             await self._refresh(interaction)
         reset.callback = reset_cb
         self.add_item(reset)
 
-        lobby_label = "🗿 Back to Lobby" if self._locale == "en" else "🗿 Quay lại sảnh chờ"
+        lobby_label = t(gid, self.user.id, "btn_lobby")
         lobby = discord.ui.Button(label=lobby_label, style=discord.ButtonStyle.secondary, row=2)
         async def lobby_cb(interaction):
             await go_lobby(interaction, self.user)
         lobby.callback = lobby_cb
         self.add_item(lobby)
 
-        exit_label = "🚪 Exit" if self._locale == "en" else "🚪 Thoát"
+        exit_label = t(gid, self.user.id, "btn_exit")
         exitb = discord.ui.Button(label=exit_label, style=discord.ButtonStyle.danger, row=2)
         async def exit_cb(interaction):
             await exit_bot(interaction)
@@ -540,32 +586,30 @@ class PotionView(discord.ui.View):
         title = "**Potion Brewing Result**" if self._locale == "en" else "**Kết quả pha chế thần dược**"
         await interaction.response.edit_message(
             embed=knight_embed(f"{title}\n\n{text}"),
-            view=AfterTrainView(self.user),
+            view=AfterTrainView(self.user, interaction.guild_id),
         )
 
 
 # ============== AFTER TRAIN ==============
 class AfterTrainView(discord.ui.View):
-    def __init__(self, user):
+    def __init__(self, user, guild_id=None):
         super().__init__(timeout=300)
         self.user = user
+        gid = guild_id
+
+        again = discord.ui.Button(
+            label=t(gid, user.id, "btn_train_again"),
+            style=discord.ButtonStyle.primary, row=0,
+        )
+        async def again_cb(interaction):
+            await interaction.response.edit_message(
+                embed=knight_embed(t(interaction.guild_id, self.user.id, "msg_choose_train")),
+                view=TrainView(self.user, interaction.guild_id),
+            )
+        again.callback = again_cb
+        self.add_item(again)
+
+        _add_lobby_exit(self, user, gid, row=0)
 
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="🛠 Luyện tập tiếp / Train again", style=discord.ButtonStyle.primary, row=0)
-    async def again(self, interaction, button):
-        locale = get_locale(interaction.guild_id, self.user.id)
-        msg = "Choose your training:" if locale == "en" else "Hãy chọn bài tập phù hợp:"
-        await interaction.response.edit_message(
-            embed=knight_embed(msg),
-            view=TrainView(self.user),
-        )
-
-    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
-    async def lobby(self, interaction, button):
-        await go_lobby(interaction, self.user)
-
-    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=0)
-    async def exit(self, interaction, button):
-        await exit_bot(interaction)
