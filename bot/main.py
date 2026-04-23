@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from .core import knight_embed, get_lore_text
 from .menu import MainView
+from .storage import get_locale
 
 
 logging.basicConfig(
@@ -48,8 +49,9 @@ async def knightofdarkness(interaction: discord.Interaction):
             ephemeral=True,
         )
         return
+    locale = get_locale(interaction.guild_id, interaction.user.id)
     await interaction.response.send_message(
-        embed=knight_embed(get_lore_text(interaction.guild_id, "intro")),
+        embed=knight_embed(get_lore_text(interaction.guild_id, "intro", locale=locale)),
         view=MainView(interaction.user, interaction.guild),
     )
 
