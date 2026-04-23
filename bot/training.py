@@ -104,6 +104,7 @@ class TrainView(discord.ui.View):
                     "**Each ingredient affects the success chance, "
                     "but the same ingredient may yield different quality each time — take note.**\n"
                     "The more Potions you carry, the higher your odds of survival on the battlefield.\n\n"
+                    f"{_potion_score_table(locale)}\n\n"
                     "**Choose your ingredients:**"
                 )
             else:
@@ -113,6 +114,7 @@ class TrainView(discord.ui.View):
                     "**Mỗi loại nguyên liệu sẽ ảnh hưởng đến xác suất thành công, "
                     "nhưng cùng một loại nguyên liệu cũng sẽ có chất lượng khác nhau – hãy lưu ý điều này.**\n"
                     "Kẻ nào sở hữu càng nhiều Thần dược, tỉ lệ sinh tồn của hắn trên chiến trường càng cao.\n\n"
+                    f"{_potion_score_table(locale)}\n\n"
                     "**Hãy chọn nguyên liệu:**"
                 )
             await interaction.response.edit_message(
@@ -400,6 +402,27 @@ async def run_dps_session(interaction, user):
 
 
 # ============== POTION ==============
+def _potion_score_table(locale: str = "vi") -> str:
+    """Score → potion-yield reference, shown inside the bot's intro/UI embeds."""
+    if locale == "en":
+        return (
+            "📜 **Score → Potion yield**\n"
+            "• Total **< 20** → 💔 **0 potions** (the brew fails)\n"
+            "• Total **20 – 49** → ⚗️⚗️ **2 potions**\n"
+            "• Total **50 – 89** → ⚗️⚗️⚗️ **3 potions**\n"
+            "• Total **≥ 90** → ⚗️⚗️⚗️⚗️⚗️ **5 potions**\n"
+            "_(Each potion grants **+1 💊 Health**, multiplied by your rank's training bonus.)_"
+        )
+    return (
+        "📜 **Tổng điểm → Số lọ thần dược**\n"
+        "• Tổng **< 20** → 💔 **0 lọ** (mẻ chế thất bại)\n"
+        "• Tổng **20 – 49** → ⚗️⚗️ **2 lọ**\n"
+        "• Tổng **50 – 89** → ⚗️⚗️⚗️ **3 lọ**\n"
+        "• Tổng **≥ 90** → ⚗️⚗️⚗️⚗️⚗️ **5 lọ**\n"
+        "_(Mỗi lọ thần dược tăng **+1 💊 Health**, được nhân theo điểm thưởng luyện tập của hạng hiện tại.)_"
+    )
+
+
 INGREDIENTS = [
     {"emoji": "🌿", "name": "Thảo dược",       "name_en": "Herb",           "lo": -10, "hi": 50},
     {"emoji": "🍄", "name": "Nấm",             "name_en": "Mushroom",       "lo": -30, "hi": 30},
@@ -526,7 +549,9 @@ class PotionView(discord.ui.View):
             selected_label = f"**Đã chọn ({len(self.picked)}/3):**"
             title = "⚗️ **Lò giả kim** — chọn đúng **ba nguyên liệu** rồi bấm **Bào chế**."
         embed = knight_embed(
-            f"{title}\n\n{note}\n\n{selected_label}\n{self._picked_text()}"
+            f"{title}\n\n{note}\n\n"
+            f"{_potion_score_table(self._locale)}\n\n"
+            f"{selected_label}\n{self._picked_text()}"
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
