@@ -55,6 +55,7 @@ async def knightofdarkness(interaction: discord.Interaction):
     await interaction.response.send_message(
         embed=knight_embed(get_lore_text(interaction.guild_id, "intro", locale=locale)),
         view=MainView(interaction.user, interaction.guild),
+        ephemeral=True,
     )
 
 
