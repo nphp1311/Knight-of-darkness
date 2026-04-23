@@ -47,7 +47,7 @@ class TrainView(discord.ui.View):
     async def potion(self, interaction, button):
         await interaction.response.edit_message(
             embed=knight_embed(
-                "⚗️ 🤺 Hiệp sĩ ma dẫn ngươi vào **Lò giả kim**:\n\n"
+                "⚗️ 🤺 Hiệp Sĩ Hắc Ám dẫn ngươi vào **Lò giả kim**:\n\n"
                 "Ngươi cần gom đúng **ba nguyên liệu** để pha chế mỗi mẻ Thần dược. "
                 "**Mỗi loại nguyên liệu sẽ ảnh hưởng đến xác suất thành công, "
                 "nhưng cùng một loại nguyên liệu cũng sẽ có chất lượng khác nhau – hãy lưu ý điều này.**\n"
