@@ -9,7 +9,7 @@ from .core import (
     attack_chance, block_chance, player_max_hp, heal_amount, damage_value,
     crit_check, miss_check, compute_rank, has_rank_role,
     go_lobby, exit_bot, announce_rank_up, maybe_grant_rank_role,
-    unlock_achievements, announce_unlocks,
+    unlock_achievements, announce_unlocks, announce_achievements_public,
     rank_name as rk_name, rank_speech as rk_speech,
 )
 
@@ -459,6 +459,8 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
         await msg.edit(embed=knight_embed(text), view=PostBattleView(user, interaction.guild_id))
         if rank_up and interaction.channel:
             await announce_rank_up(interaction.channel, interaction.user, new_rank, interaction.guild_id)
+        if new_ach and interaction.channel:
+            await announce_achievements_public(interaction.channel, interaction.user, new_ach, locale)
     else:
         if locale == "en":
             lose_text = (
@@ -886,15 +888,35 @@ async def start_pvp_battle(channel, lobby_message, u1, u2, gid):
             f"🛡 Tank `{p2d['tank']}` | 🗡 DPS `{p2d['dps']}` | 💊 HP `{s2.max_hp}`\n\n"
             f"🤺 **Hiệp Sĩ Hắc Ám thông báo:** Người tung chiêu đầu tiên là **{first.display_name}**!"
         )
+
+    # Send the battle as a NEW PUBLIC message in the channel so the whole server can watch.
     try:
-        await lobby_message.edit(content=f"{u1.mention} {u2.mention}",
-                                 embed=knight_embed(intro), view=None)
-    except (discord.NotFound, discord.HTTPException):
+        battle_message = await channel.send(
+            content=f"{u1.mention} {u2.mention}",
+            embed=knight_embed(intro),
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        return
+
+    # Update the (ephemeral) lobby message of the challenger to indicate battle has begun.
+    if lobby_message is not None:
+        if locale == "en":
+            notice = (
+                f"⚔️ **The duel has begun publicly in <#{channel.id}>!**\n\n"
+                f"Head over to watch and play."
+            )
+        else:
+            notice = (
+                f"⚔️ **Trận đấu đã bắt đầu công khai tại <#{channel.id}>!**\n\n"
+                f"Hãy qua đó để theo dõi và thi đấu."
+            )
         try:
-            lobby_message = await channel.send(content=f"{u1.mention} {u2.mention}",
-                                               embed=knight_embed(intro))
-        except (discord.Forbidden, discord.HTTPException):
-            return
+            await lobby_message.edit(embed=knight_embed(notice), view=None)
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+    lobby_message = battle_message
     await asyncio.sleep(2.5)
 
     MAX_TURNS = 10
