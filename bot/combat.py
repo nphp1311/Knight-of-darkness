@@ -3,13 +3,14 @@ import asyncio
 import random
 import discord
 
-from .storage import get_player, persist
+from .storage import get_player, persist, get_locale
 from .core import (
     knight_embed, t, RANK_INFO, RANKS, Monster, monsters_by_level, can_fight_monster,
     attack_chance, block_chance, player_max_hp, heal_amount, damage_value,
     crit_check, miss_check, compute_rank, has_rank_role,
     go_lobby, exit_bot, announce_rank_up, maybe_grant_rank_role,
     unlock_achievements, announce_unlocks,
+    rank_name as rk_name, rank_speech as rk_speech,
 )
 
 
@@ -22,80 +23,88 @@ class ChallengeMenuView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="⚔️ Thách đấu người chơi", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="⚔️ Thách đấu người chơi / Challenge Player", style=discord.ButtonStyle.primary, row=0)
     async def pvp(self, interaction, button):
-        await interaction.response.send_modal(PvpInviteModal(self.user))
+        await interaction.response.send_modal(PvpInviteModal(self.user, interaction.guild_id))
 
-    @discord.ui.button(label="🐉 Thách đấu quái vật", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🐉 Thách đấu quái vật / Challenge Monster", style=discord.ButtonStyle.danger, row=0)
     async def pve(self, interaction, button):
         await interaction.response.edit_message(
             embed=knight_embed(t(interaction.guild_id, self.user.id, "pve_pick_level")),
             view=PveLevelView(self.user),
         )
 
-    @discord.ui.button(label="🗿 Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🗿 Lobby / Back to Lobby", style=discord.ButtonStyle.secondary, row=1)
     async def lobby(self, interaction, button):
         await go_lobby(interaction, self.user)
 
-    @discord.ui.button(label="🚪 Thoát", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=1)
     async def exit(self, interaction, button):
         await exit_bot(interaction)
 
 
 # ============== PvE LEVEL SELECT ==============
 LEVEL_LABELS = {
-    1: "🪨 Cấp I — Khởi đầu",
-    2: "🌲 Cấp II — Thích nghi",
-    3: "🔥 Cấp III — Nguy hiểm",
-    4: "🌑 Cấp IV — Ác mộng",
-    5: "👑 Cấp V — Endgame",
+    1: ("🪨 Cấp I — Khởi đầu", "🪨 Tier I — Beginnings"),
+    2: ("🌲 Cấp II — Thích nghi", "🌲 Tier II — Adaptation"),
+    3: ("🔥 Cấp III — Nguy hiểm", "🔥 Tier III — Dangerous"),
+    4: ("🌑 Cấp IV — Ác mộng", "🌑 Tier IV — Nightmare"),
+    5: ("👑 Cấp V — Endgame", "👑 Tier V — Endgame"),
 }
+
+
+def _level_label(lv: int, locale: str = "vi") -> str:
+    vi, en = LEVEL_LABELS.get(lv, (str(lv), str(lv)))
+    return en if locale == "en" else vi
 
 
 class PveLevelView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=300)
         self.user = user
-        for lv in [1, 2, 3, 4, 5]:
-            btn = discord.ui.Button(label=LEVEL_LABELS[lv], style=discord.ButtonStyle.secondary, row=(lv - 1) // 3)
 
+    async def interaction_check(self, interaction):
+        return interaction.user.id == self.user.id
+
+    async def setup(self, interaction):
+        gid = interaction.guild_id
+        locale = get_locale(gid, self.user.id)
+        self.clear_items()
+        for lv in [1, 2, 3, 4, 5]:
+            label = _level_label(lv, locale)
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, row=(lv - 1) // 3)
             async def cb(interaction, lv_=lv):
                 if interaction.user.id != self.user.id:
                     return
                 await self._show_monsters(interaction, lv_)
-
             btn.callback = cb
             self.add_item(btn)
 
-        lobby = discord.ui.Button(label="🗿 Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=2)
+        lobby_label = "🗿 Back to Lobby" if locale == "en" else "🗿 Quay lại sảnh chờ"
+        lobby = discord.ui.Button(label=lobby_label, style=discord.ButtonStyle.secondary, row=2)
         async def lobby_cb(interaction):
             await go_lobby(interaction, self.user)
         lobby.callback = lobby_cb
         self.add_item(lobby)
 
-        exitb = discord.ui.Button(label="🚪 Thoát", style=discord.ButtonStyle.danger, row=2)
+        exit_label = "🚪 Exit" if locale == "en" else "🚪 Thoát"
+        exitb = discord.ui.Button(label=exit_label, style=discord.ButtonStyle.danger, row=2)
         async def exit_cb(interaction):
             await exit_bot(interaction)
         exitb.callback = exit_cb
         self.add_item(exitb)
 
-    async def interaction_check(self, interaction):
-        return interaction.user.id == self.user.id
-
     async def _show_monsters(self, interaction, level: int):
         p = get_player(interaction.guild_id, self.user.id)
-        # Member chưa đạt cấp tương ứng (chưa có role) thì không thể thách đấu vượt cấp với quái.
         rank_lv = RANKS.index(p["rank"]) + 1
-        # Ngoại lệ: rank IV (4) được phép thách boss cấp V — bài thi cuối.
         allow_boss_challenge = (rank_lv == 4 and level == 5)
         if level > rank_lv and not allow_boss_challenge:
             await interaction.response.edit_message(
                 embed=knight_embed(t(interaction.guild_id, self.user.id, "no_overrun",
-                                     rank=RANK_INFO[p['rank']]['name'])),
+                                     rank=rk_name(p['rank'], get_locale(interaction.guild_id, self.user.id)))),
                 view=ChallengeMenuView(self.user),
             )
             return
-        # Ngoài ra, để mở khoá đấu cấp = rank, cũng yêu cầu user đã thực sự nhận được role hạng (nếu admin có thiết lập).
         member = interaction.guild.get_member(self.user.id) if interaction.guild else None
         if level == rank_lv and rank_lv > 1:
             from .storage import get_guild
@@ -104,13 +113,25 @@ class PveLevelView(discord.ui.View):
             if role_id and not has_rank_role(member, interaction.guild_id, p["rank"]):
                 await interaction.response.edit_message(
                     embed=knight_embed(t(interaction.guild_id, self.user.id, "no_overrun",
-                                         rank=RANK_INFO[p['rank']]['name'])),
+                                         rank=rk_name(p['rank'], get_locale(interaction.guild_id, self.user.id)))),
                     view=ChallengeMenuView(self.user),
                 )
                 return
         monsters = monsters_by_level(level)
-        embed = knight_embed(f"**{LEVEL_LABELS[level]}** — Hãy chọn đối thủ:")
+        locale = get_locale(interaction.guild_id, self.user.id)
+        label = _level_label(level, locale)
+        choose_word = "Choose your foe:" if locale == "en" else "Hãy chọn đối thủ:"
+        embed = knight_embed(f"**{label}** — {choose_word}")
         await interaction.response.edit_message(embed=embed, view=PveMonsterView(self.user, monsters))
+
+
+async def show_pve_level_view(interaction, user):
+    view = PveLevelView(user)
+    await view.setup(interaction)
+    await interaction.response.edit_message(
+        embed=knight_embed(t(interaction.guild_id, user.id, "pve_pick_level")),
+        view=view,
+    )
 
 
 class PveMonsterView(discord.ui.View):
@@ -123,25 +144,20 @@ class PveMonsterView(discord.ui.View):
                 style=discord.ButtonStyle.danger,
                 row=i // 2,
             )
-
             async def cb(interaction, mon=m):
                 if interaction.user.id != self.user.id:
                     return
                 await show_pve_ready(interaction, self.user, mon)
-
             btn.callback = cb
             self.add_item(btn)
 
-        back = discord.ui.Button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=4)
+        back = discord.ui.Button(label="◀ Back / Quay lại", style=discord.ButtonStyle.secondary, row=4)
         async def back_cb(interaction):
-            await interaction.response.edit_message(
-                embed=knight_embed(t(interaction.guild_id, self.user.id, "pve_pick_level")),
-                view=PveLevelView(self.user),
-            )
+            await show_pve_level_view(interaction, self.user)
         back.callback = back_cb
         self.add_item(back)
 
-        exitb = discord.ui.Button(label="🚪 Thoát", style=discord.ButtonStyle.danger, row=4)
+        exitb = discord.ui.Button(label="🚪 Exit / Thoát", style=discord.ButtonStyle.danger, row=4)
         async def exit_cb(interaction):
             await exit_bot(interaction)
         exitb.callback = exit_cb
@@ -164,9 +180,10 @@ class BattleSide:
 
 
 class PveActionView(discord.ui.View):
-    def __init__(self, user_id):
+    def __init__(self, user_id, locale: str = "vi"):
         super().__init__(timeout=30)
         self.user_id = user_id
+        self.locale = locale
         self.choice: str | None = None
         self.future: asyncio.Future = asyncio.get_event_loop().create_future()
 
@@ -180,15 +197,15 @@ class PveActionView(discord.ui.View):
             self.future.set_result(c)
         self.stop()
 
-    @discord.ui.button(label="🗡 Tấn công", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗡 Tấn công / Attack", style=discord.ButtonStyle.danger)
     async def atk(self, interaction, button):
         await self._set(interaction, "A")
 
-    @discord.ui.button(label="🛡 Phòng thủ", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🛡 Phòng thủ / Defend", style=discord.ButtonStyle.primary)
     async def df(self, interaction, button):
         await self._set(interaction, "D")
 
-    @discord.ui.button(label="🚪 Bỏ trận", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🚪 Bỏ trận / Flee", style=discord.ButtonStyle.secondary)
     async def flee(self, interaction, button):
         await self._set(interaction, "F")
 
@@ -202,65 +219,76 @@ def hp_bar(cur, mx, width=12):
     return "█" * filled + "░" * (width - filled)
 
 
-def attack_vs_defend(atk: BattleSide, defn: BattleSide) -> list[str]:
+def attack_vs_defend(atk: BattleSide, defn: BattleSide, locale: str = "vi") -> list[str]:
     log = []
     block = block_chance(defn.tank, atk.dps)
     if miss_check():
-        log.append(f"💀 🗡 {atk.name} đánh trượt!")
+        log.append(f"💀 🗡 {atk.name} {'missed!' if locale == 'en' else 'đánh trượt!'}")
         return log
     if random.random() < block:
-        log.append(f"🌟 🛡 {defn.name} chặn đứng đòn đánh.")
+        log.append(f"🌟 🛡 {defn.name} {'blocked the strike.' if locale == 'en' else 'chặn đứng đòn đánh.'}")
     else:
         dmg = damage_value(atk.dps)
-        log.append(f"💀 🛡 Phòng thủ của {defn.name} sụp đổ! 🗡 {atk.name} gây **-{dmg} HP**.")
+        if locale == "en":
+            log.append(f"💀 🛡 {defn.name}'s defense crumbles! 🗡 {atk.name} deals **-{dmg} HP**.")
+        else:
+            log.append(f"💀 🛡 Phòng thủ của {defn.name} sụp đổ! 🗡 {atk.name} gây **-{dmg} HP**.")
         defn.hp -= dmg
     return log
 
 
-def resolve_round(p: BattleSide, e: BattleSide, p_choice: str, e_choice: str) -> list[str]:
+def resolve_round(p: BattleSide, e: BattleSide, p_choice: str, e_choice: str, locale: str = "vi") -> list[str]:
     log = []
     if p_choice == "A" and e_choice == "A":
-        for atk, defn, atk_label in (
-            (p, e, f"🗡 {p.name}"),
-            (e, p, f"🗡 {e.name}"),
-        ):
+        for atk, defn in ((p, e), (e, p)):
             if miss_check():
-                log.append(f"💀 {atk_label} đánh trượt!")
+                log.append(f"💀 🗡 {atk.name} {'missed!' if locale == 'en' else 'đánh trượt!'}")
                 continue
             if random.random() < attack_chance(atk.dps, defn.dps):
                 dmg = damage_value(atk.dps)
                 if crit_check():
                     dmg = int(dmg * 1.5)
-                    log.append(f"🌟 {atk_label} **CRIT** lên {defn.name}! **-{dmg} HP**")
+                    log.append(f"🌟 🗡 {atk.name} **CRIT** {'on' if locale == 'en' else 'lên'} {defn.name}! **-{dmg} HP**")
                 else:
-                    log.append(f"🗡 {atk_label} áp đảo {defn.name}. **-{dmg} HP**")
+                    log.append(f"🗡 {atk.name} {'overpowers' if locale == 'en' else 'áp đảo'} {defn.name}. **-{dmg} HP**")
                 defn.hp -= dmg
             else:
-                log.append(f"💀 Đòn của {atk_label} bị {defn.name} vượt qua.")
+                if locale == "en":
+                    log.append(f"💀 {defn.name} parries {atk.name}'s blow.")
+                else:
+                    log.append(f"💀 Đòn của {atk.name} bị {defn.name} vượt qua.")
     elif p_choice == "A" and e_choice == "D":
-        log += attack_vs_defend(p, e)
+        log += attack_vs_defend(p, e, locale)
     elif p_choice == "D" and e_choice == "A":
-        log += attack_vs_defend(e, p)
+        log += attack_vs_defend(e, p, locale)
     else:
         ph = heal_amount(p)
         eh = heal_amount(e)
         p.hp = min(p.max_hp, p.hp + ph)
         e.hp = min(e.max_hp, e.hp + eh)
-        log.append(f"💊 Cả hai lùi lại… củng cố sinh lực. {p.name} **+{ph} HP**, {e.name} **+{eh} HP**.")
+        if locale == "en":
+            log.append(f"💊 Both sides fall back… recovering. {p.name} **+{ph} HP**, {e.name} **+{eh} HP**.")
+        else:
+            log.append(f"💊 Cả hai lùi lại… củng cố sinh lực. {p.name} **+{ph} HP**, {e.name} **+{eh} HP**.")
     return log
 
 
-def battle_status_embed(p: BattleSide, e: BattleSide, log_lines, turn) -> discord.Embed:
+def battle_status_embed(p: BattleSide, e: BattleSide, log_lines, turn, locale: str = "vi") -> discord.Embed:
+    if locale == "en":
+        turn_line = f"⚔️ **Round {turn}** — Make your choice."
+        last_round = "__**Last round:**__"
+    else:
+        turn_line = f"⚔️ **Lượt {turn}** — Hãy ra quyết định."
+        last_round = "__**Lượt vừa rồi:**__"
     return knight_embed(
-        f"⚔️ **Lượt {turn}** — Hãy ra quyết định.\n\n"
+        f"{turn_line}\n\n"
         f"**{p.name}**\n💊 `{hp_bar(p.hp, p.max_hp)}` {max(0, p.hp)}/{p.max_hp}\n\n"
         f"**{e.name}**\n💊 `{hp_bar(e.hp, e.max_hp)}` {max(0, e.hp)}/{e.max_hp}\n\n"
-        + (("__**Lượt vừa rồi:**__\n" + "\n".join(log_lines)) if log_lines else "")
+        + ((f"{last_round}\n" + "\n".join(log_lines)) if log_lines else "")
     )
 
 
 class PveReadyView(discord.ui.View):
-    """Màn hình chuẩn bị trước khi vào trận PvE — buộc user xác nhận bằng nút 💥 Vào trận."""
     def __init__(self, user, monster: Monster):
         super().__init__(timeout=120)
         self.user = user
@@ -269,30 +297,37 @@ class PveReadyView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="💥 Vào trận", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="💥 Vào trận / Enter Battle", style=discord.ButtonStyle.danger, row=0)
     async def enter(self, interaction, button):
         await start_pve_battle(interaction, self.user, self.monster)
 
-    @discord.ui.button(label="◀ Quay lại", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="◀ Quay lại / Back", style=discord.ButtonStyle.secondary, row=0)
     async def back(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(t(interaction.guild_id, self.user.id, "pve_pick_level")),
-            view=PveLevelView(self.user),
-        )
+        await show_pve_level_view(interaction, self.user)
 
 
 async def show_pve_ready(interaction: discord.Interaction, user: discord.User, monster: Monster):
-    """Hiển thị màn hình chuẩn bị trước khi đánh quái. Người chơi phải bấm 💥 Vào trận để bắt đầu."""
     p_data = get_player(interaction.guild_id, user.id)
     p_hp = player_max_hp(p_data)
-    text = (
-        f"⚔️ **Chuẩn bị trận chiến**\n\n"
-        f"**Đối thủ:** {monster.display} _(Cấp {monster.level})_\n"
-        f"🛡 Tank `{monster.tank}` | 🗡 DPS `{monster.dps}` | 💊 HP `{monster.hp}`\n\n"
-        f"**Ngươi:** {user.display_name}\n"
-        f"🛡 Tank `{p_data['tank']}` | 🗡 DPS `{p_data['dps']}` | 💊 HP `{p_hp}`\n\n"
-        f"_Hít một hơi sâu… và bấm **💥 Vào trận** khi đã sẵn sàng. Một khi đã ra khỏi sảnh chờ, sẽ không có đường lui._"
-    )
+    locale = get_locale(interaction.guild_id, user.id)
+    if locale == "en":
+        text = (
+            f"⚔️ **Battle Preparation**\n\n"
+            f"**Opponent:** {monster.display} _(Level {monster.level})_\n"
+            f"🛡 Tank `{monster.tank}` | 🗡 DPS `{monster.dps}` | 💊 HP `{monster.hp}`\n\n"
+            f"**You:** {user.display_name}\n"
+            f"🛡 Tank `{p_data['tank']}` | 🗡 DPS `{p_data['dps']}` | 💊 HP `{p_hp}`\n\n"
+            f"_Take a deep breath… then press **💥 Enter Battle** when you are ready. Once you leave the lobby, there is no turning back._"
+        )
+    else:
+        text = (
+            f"⚔️ **Chuẩn bị trận chiến**\n\n"
+            f"**Đối thủ:** {monster.display} _(Cấp {monster.level})_\n"
+            f"🛡 Tank `{monster.tank}` | 🗡 DPS `{monster.dps}` | 💊 HP `{monster.hp}`\n\n"
+            f"**Ngươi:** {user.display_name}\n"
+            f"🛡 Tank `{p_data['tank']}` | 🗡 DPS `{p_data['dps']}` | 💊 HP `{p_hp}`\n\n"
+            f"_Hít một hơi sâu… và bấm **💥 Vào trận** khi đã sẵn sàng. Một khi đã ra khỏi sảnh chờ, sẽ không có đường lui._"
+        )
     await interaction.response.edit_message(
         embed=knight_embed(text),
         view=PveReadyView(user, monster),
@@ -300,6 +335,7 @@ async def show_pve_ready(interaction: discord.Interaction, user: discord.User, m
 
 
 async def start_pve_battle(interaction: discord.Interaction, user: discord.User, monster: Monster):
+    locale = get_locale(interaction.guild_id, user.id)
     p_data = get_player(interaction.guild_id, user.id)
     p_side = BattleSide(user.display_name, p_data["tank"], p_data["dps"], player_max_hp(p_data), False, user.id)
     e_side = BattleSide(monster.display, monster.tank, monster.dps, monster.hp, True)
@@ -311,8 +347,8 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
     turn = 1
     fled = False
     while p_side.hp > 0 and e_side.hp > 0 and turn <= 30:
-        view = PveActionView(user.id)
-        await msg.edit(embed=battle_status_embed(p_side, e_side, log, turn), view=view)
+        view = PveActionView(user.id, locale)
+        await msg.edit(embed=battle_status_embed(p_side, e_side, log, turn, locale), view=view)
         try:
             p_choice = await asyncio.wait_for(view.future, timeout=31)
         except asyncio.TimeoutError:
@@ -321,15 +357,22 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
             fled = True
             break
         e_choice = "A" if random.random() < 0.7 else "D"
-        log = resolve_round(p_side, e_side, p_choice, e_choice)
+        log = resolve_round(p_side, e_side, p_choice, e_choice, locale)
         turn += 1
 
     if fled:
-        await msg.edit(
-            embed=knight_embed(
+        if locale == "en":
+            fled_text = (
+                f"🏃 You fled from battle against **{monster.display}**. "
+                f"A true knight never turns their back…"
+            )
+        else:
+            fled_text = (
                 f"🏃 Ngươi đã bỏ chạy khỏi trận đấu với **{monster.display}**. "
                 f"Một hiệp sĩ thực sự không bao giờ quay lưng…"
-            ),
+            )
+        await msg.edit(
+            embed=knight_embed(fled_text),
             view=PostBattleView(user),
         )
         return
@@ -345,24 +388,45 @@ async def start_pve_battle(interaction: discord.Interaction, user: discord.User,
         p_data["rank"] = new_rank
         new_ach = unlock_achievements(p_data)
         persist()
-        text = (
-            f"🌟 Ngươi là kẻ sống sót cuối cùng.\n\n"
-            f"⚔️ Hạ gục **{monster.display}** (Cấp {monster.level}) — **+{bonus} điểm chiến công**\n"
-            f"💊 Máu còn lại: {p_side.hp}/{p_side.max_hp}"
-        )
-        if rank_up:
-            text += f"\n\n🏆 **THĂNG HẠNG!** Giờ đây ngươi là **{RANK_INFO[new_rank]['name']}**\n{RANK_INFO[new_rank]['speech']}"
-            await maybe_grant_rank_role(interaction, user, new_rank)
-        text += announce_unlocks(new_ach)
+        if locale == "en":
+            text = (
+                f"🌟 You are the last one standing.\n\n"
+                f"⚔️ Defeated **{monster.display}** (Level {monster.level}) — **+{bonus} merit points**\n"
+                f"💊 HP remaining: {p_side.hp}/{p_side.max_hp}"
+            )
+            if rank_up:
+                rn = rk_name(new_rank, "en")
+                rs = rk_speech(new_rank, "en")
+                text += f"\n\n🏆 **RANK UP!** You are now **{rn}**\n{rs}"
+                await maybe_grant_rank_role(interaction, user, new_rank)
+        else:
+            text = (
+                f"🌟 Ngươi là kẻ sống sót cuối cùng.\n\n"
+                f"⚔️ Hạ gục **{monster.display}** (Cấp {monster.level}) — **+{bonus} điểm chiến công**\n"
+                f"💊 Máu còn lại: {p_side.hp}/{p_side.max_hp}"
+            )
+            if rank_up:
+                rn = rk_name(new_rank, "vi")
+                rs = rk_speech(new_rank, "vi")
+                text += f"\n\n🏆 **THĂNG HẠNG!** Giờ đây ngươi là **{rn}**\n{rs}"
+                await maybe_grant_rank_role(interaction, user, new_rank)
+        text += announce_unlocks(new_ach, locale)
         await msg.edit(embed=knight_embed(text), view=PostBattleView(user))
         if rank_up and interaction.channel:
             await announce_rank_up(interaction.channel, interaction.user, new_rank, interaction.guild_id)
     else:
-        await msg.edit(
-            embed=knight_embed(
+        if locale == "en":
+            lose_text = (
+                f"💀 💊 Your life force… has been extinguished.\n\n"
+                f"You have fallen at the hands of **{monster.display}**."
+            )
+        else:
+            lose_text = (
                 f"💀 💊 Sinh mệnh của ngươi… đã cạn.\n\n"
                 f"Ngươi đã ngã xuống dưới tay **{monster.display}**."
-            ),
+            )
+        await msg.edit(
+            embed=knight_embed(lose_text),
             view=PostBattleView(user),
         )
 
@@ -375,36 +439,44 @@ class PostBattleView(discord.ui.View):
     async def interaction_check(self, interaction):
         return interaction.user.id == self.user.id
 
-    @discord.ui.button(label="⚔️ Đấu tiếp", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="⚔️ Đấu tiếp / Fight again", style=discord.ButtonStyle.danger, row=0)
     async def again(self, interaction, button):
+        locale = get_locale(interaction.guild_id, self.user.id)
+        msg = "Choose your next opponent:" if locale == "en" else "Hãy chọn đối thủ tiếp theo của ngươi:"
         await interaction.response.edit_message(
-            embed=knight_embed("Hãy chọn đối thủ tiếp theo của ngươi:"),
+            embed=knight_embed(msg),
             view=ChallengeMenuView(self.user),
         )
 
-    @discord.ui.button(label="🗿 Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🗿 Lobby / Quay lại sảnh chờ", style=discord.ButtonStyle.secondary, row=0)
     async def lobby(self, interaction, button):
         await go_lobby(interaction, self.user)
 
-    @discord.ui.button(label="🚪 Thoát", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🚪 Thoát / Exit", style=discord.ButtonStyle.danger, row=0)
     async def exit(self, interaction, button):
         await exit_bot(interaction)
 
 
 # ============== PvP ==============
-class PvpInviteModal(discord.ui.Modal, title="⚔️ Thư mời thách đấu"):
-    def __init__(self, challenger: discord.User):
-        super().__init__()
+class PvpInviteModal(discord.ui.Modal):
+    def __init__(self, challenger: discord.User, guild_id):
+        locale = get_locale(guild_id, challenger.id) if guild_id else "vi"
+        title = "⚔️ Challenge Invitation" if locale == "en" else "⚔️ Thư mời thách đấu"
+        super().__init__(title=title)
         self.challenger = challenger
+        self.guild_id = guild_id
+        label = "Opponent's ID or @mention" if locale == "en" else "ID hoặc @mention của đối thủ"
+        placeholder = "Enter user ID or paste a mention <@123...>" if locale == "en" else "Nhập user ID hoặc dán mention <@123...>"
         self.target_input = discord.ui.TextInput(
-            label="ID hoặc @mention của đối thủ",
-            placeholder="Nhập user ID hoặc dán mention <@123...>",
+            label=label,
+            placeholder=placeholder,
             required=True,
         )
         self.add_item(self.target_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         raw = self.target_input.value.strip()
+        locale = get_locale(interaction.guild_id, self.challenger.id)
         target_id = None
         if raw.startswith("<@") and raw.endswith(">"):
             inner = raw[2:-1].lstrip("!&")
@@ -419,16 +491,13 @@ class PvpInviteModal(discord.ui.Modal, title="⚔️ Thư mời thách đấu"):
                 pass
 
         if not target_id:
-            await interaction.response.send_message(
-                embed=knight_embed("💀 Không tìm được đối thủ. Hãy thử lại với @mention hoặc ID."),
-                ephemeral=True,
-            )
+            msg = "💀 Could not find that opponent. Try again with a @mention or ID." if locale == "en" else "💀 Không tìm được đối thủ. Hãy thử lại với @mention hoặc ID."
+            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
             return
 
         if target_id == self.challenger.id:
-            await interaction.response.send_message(
-                embed=knight_embed("💀 Ngươi không thể thách đấu chính mình."), ephemeral=True,
-            )
+            msg = "💀 You cannot challenge yourself." if locale == "en" else "💀 Ngươi không thể thách đấu chính mình."
+            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
             return
 
         target = interaction.guild.get_member(target_id)
@@ -438,23 +507,29 @@ class PvpInviteModal(discord.ui.Modal, title="⚔️ Thư mời thách đấu"):
             except (discord.NotFound, discord.HTTPException):
                 target = None
         if not target:
-            await interaction.response.send_message(
-                embed=knight_embed("💀 Kẻ đó không có mặt trong vương quốc này."), ephemeral=True,
-            )
+            msg = "💀 That person is not present in this realm." if locale == "en" else "💀 Kẻ đó không có mặt trong vương quốc này."
+            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
             return
 
         if target.bot:
-            await interaction.response.send_message(
-                embed=knight_embed("💀 Ngươi không thể thách đấu một bot."), ephemeral=True,
-            )
+            msg = "💀 You cannot challenge a bot." if locale == "en" else "💀 Ngươi không thể thách đấu một bot."
+            await interaction.response.send_message(embed=knight_embed(msg), ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            embed=knight_embed(
+        if locale == "en":
+            invite_text = (
+                f"⚔️✉️⚔️ **Challenge Invitation**\n\n"
+                f"{target.mention}, **{self.challenger.display_name}** challenges you to a 1v1 duel!\n"
+                f"{target.display_name}, do you dare accept?"
+            )
+        else:
+            invite_text = (
                 f"⚔️✉️⚔️ **Thư mời thách đấu**\n\n"
                 f"{target.mention}, **{self.challenger.display_name}** thách đấu ngươi 1v1!\n"
                 f"{target.display_name}, ngươi có dám chấp nhận?"
-            ),
+            )
+        await interaction.response.send_message(
+            embed=knight_embed(invite_text),
             view=PvpInviteView(self.challenger, target),
         )
 
@@ -467,26 +542,26 @@ class PvpInviteView(discord.ui.View):
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Chỉ người được mời mới có thể trả lời.", ephemeral=True)
+            msg = "Only the invited player may respond." if get_locale(interaction.guild_id, interaction.user.id) == "en" else "Chỉ người được mời mới có thể trả lời."
+            await interaction.response.send_message(msg, ephemeral=True)
             return False
         return True
 
-    @discord.ui.button(label="✅ Đồng ý", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Đồng ý / Accept", style=discord.ButtonStyle.success)
     async def accept(self, interaction, button):
         await show_pvp_ready(interaction, self.challenger, self.target)
 
-    @discord.ui.button(label="🚪 Từ chối", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🚪 Từ chối / Decline", style=discord.ButtonStyle.danger)
     async def decline(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(
-                f"🌑 {self.target.display_name} đã từ chối thách đấu của {self.challenger.display_name}."
-            ),
-            view=None,
-        )
+        locale = get_locale(interaction.guild_id, self.target.id)
+        if locale == "en":
+            msg = f"🌑 {self.target.display_name} has declined {self.challenger.display_name}'s challenge."
+        else:
+            msg = f"🌑 {self.target.display_name} đã từ chối thách đấu của {self.challenger.display_name}."
+        await interaction.response.edit_message(embed=knight_embed(msg), view=None)
 
 
 class PvpReadyView(discord.ui.View):
-    """Cả hai người chơi phải bấm 💥 Vào trận trước khi đấu trường thực sự rung chuyển."""
     def __init__(self, challenger, target):
         super().__init__(timeout=120)
         self.challenger = challenger
@@ -496,13 +571,22 @@ class PvpReadyView(discord.ui.View):
 
     async def interaction_check(self, interaction):
         if interaction.user.id not in (self.challenger.id, self.target.id):
-            await interaction.response.send_message("Ngươi không phải là một trong hai đấu sĩ.", ephemeral=True)
+            locale = get_locale(interaction.guild_id, interaction.user.id)
+            msg = "You are not one of the two combatants." if locale == "en" else "Ngươi không phải là một trong hai đấu sĩ."
+            await interaction.response.send_message(msg, ephemeral=True)
             return False
         return True
 
-    def _status_text(self) -> str:
+    def _status_text(self, locale: str = "vi") -> str:
         c_mark = "✅" if self.challenger.id in self.ready else "⏳"
         t_mark = "✅" if self.target.id in self.ready else "⏳"
+        if locale == "en":
+            return (
+                f"⚔️ **Both warriors face each other in the arena…**\n\n"
+                f"{c_mark} **{self.challenger.display_name}**\n"
+                f"{t_mark} **{self.target.display_name}**\n\n"
+                f"_Both must press **💥 Enter Battle** for the deathmatch to begin._"
+            )
         return (
             f"⚔️ **Cả hai đấu sĩ đã đối mặt nhau giữa đấu trường…**\n\n"
             f"{c_mark} **{self.challenger.display_name}**\n"
@@ -510,10 +594,12 @@ class PvpReadyView(discord.ui.View):
             f"_Cả hai phải bấm **💥 Vào trận** thì trận tử chiến mới bắt đầu._"
         )
 
-    @discord.ui.button(label="💥 Vào trận", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="💥 Vào trận / Enter Battle", style=discord.ButtonStyle.danger, row=0)
     async def enter(self, interaction, button):
+        locale = get_locale(interaction.guild_id, interaction.user.id)
         if interaction.user.id in self.ready:
-            await interaction.response.send_message("Ngươi đã sẵn sàng rồi — chờ đối thủ.", ephemeral=True)
+            msg = "You are already ready — waiting for your opponent." if locale == "en" else "Ngươi đã sẵn sàng rồi — chờ đối thủ."
+            await interaction.response.send_message(msg, ephemeral=True)
             return
         self.ready.add(interaction.user.id)
 
@@ -521,12 +607,16 @@ class PvpReadyView(discord.ui.View):
             self.started = True
             await interaction.response.defer()
             try:
+                announce_text = (
+                    f"@everyone ⚔️ **The arena trembles!** "
+                    f"{self.challenger.mention} vs {self.target.mention} — witness the 1v1 deathmatch!"
+                ) if locale == "en" else (
+                    f"@everyone ⚔️ **Đấu trường rung chuyển!** "
+                    f"{self.challenger.mention} vs {self.target.mention} — "
+                    f"hãy tới chứng kiến trận tử chiến 1vs1!"
+                )
                 await interaction.channel.send(
-                    content=(
-                        f"@everyone ⚔️ **Đấu trường rung chuyển!** "
-                        f"{self.challenger.mention} vs {self.target.mention} — "
-                        f"hãy tới chứng kiến trận tử chiến 1vs1!"
-                    ),
+                    content=announce_text,
                     allowed_mentions=discord.AllowedMentions(everyone=True, users=True),
                 )
             except (discord.Forbidden, discord.HTTPException):
@@ -536,58 +626,63 @@ class PvpReadyView(discord.ui.View):
             self.stop()
         else:
             await interaction.response.edit_message(
-                embed=knight_embed(self._status_text()),
+                embed=knight_embed(self._status_text(locale)),
                 view=self,
             )
 
-    @discord.ui.button(label="🚪 Rút lui", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🚪 Rút lui / Withdraw", style=discord.ButtonStyle.secondary, row=0)
     async def withdraw(self, interaction, button):
-        await interaction.response.edit_message(
-            embed=knight_embed(
-                f"🌑 **{interaction.user.display_name}** đã rút lui khỏi đấu trường. "
-                f"Trận tử chiến không xảy ra."
-            ),
-            view=None,
-        )
+        locale = get_locale(interaction.guild_id, interaction.user.id)
+        if locale == "en":
+            msg = f"🌑 **{interaction.user.display_name}** has withdrawn from the arena. The deathmatch did not take place."
+        else:
+            msg = f"🌑 **{interaction.user.display_name}** đã rút lui khỏi đấu trường. Trận tử chiến không xảy ra."
+        await interaction.response.edit_message(embed=knight_embed(msg), view=None)
         self.stop()
 
 
 async def show_pvp_ready(interaction: discord.Interaction, challenger, target):
     view = PvpReadyView(challenger, target)
+    locale = get_locale(interaction.guild_id, challenger.id)
     await interaction.response.edit_message(
-        embed=knight_embed(view._status_text()),
+        embed=knight_embed(view._status_text(locale)),
         view=view,
     )
 
 
 class PvpRoundView(discord.ui.View):
-    def __init__(self, p1_id, p2_id):
+    def __init__(self, p1_id, p2_id, locale: str = "vi"):
         super().__init__(timeout=30)
         self.choices: dict[int, str] = {}
         self.p1_id = p1_id
         self.p2_id = p2_id
+        self.locale = locale
         self.future: asyncio.Future = asyncio.get_event_loop().create_future()
 
     async def _record(self, interaction, c: str):
         if interaction.user.id not in (self.p1_id, self.p2_id):
-            await interaction.response.send_message("Ngươi không tham chiến.", ephemeral=True)
+            msg = "You are not participating in this battle." if self.locale == "en" else "Ngươi không tham chiến."
+            await interaction.response.send_message(msg, ephemeral=True)
             return
         if interaction.user.id in self.choices:
-            await interaction.response.send_message("Ngươi đã chọn rồi.", ephemeral=True)
+            msg = "You have already made your choice." if self.locale == "en" else "Ngươi đã chọn rồi."
+            await interaction.response.send_message(msg, ephemeral=True)
             return
         self.choices[interaction.user.id] = c
-        await interaction.response.send_message(
-            f"Đã ghi nhận: {('🗡 Tấn công' if c=='A' else '🛡 Phòng thủ')}", ephemeral=True,
-        )
+        if c == "A":
+            confirm = "Recorded: 🗡 Attack" if self.locale == "en" else "Đã ghi nhận: 🗡 Tấn công"
+        else:
+            confirm = "Recorded: 🛡 Defend" if self.locale == "en" else "Đã ghi nhận: 🛡 Phòng thủ"
+        await interaction.response.send_message(confirm, ephemeral=True)
         if len(self.choices) == 2 and not self.future.done():
             self.future.set_result(True)
             self.stop()
 
-    @discord.ui.button(label="🗡 Tấn công", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗡 Tấn công / Attack", style=discord.ButtonStyle.danger)
     async def atk(self, interaction, button):
         await self._record(interaction, "A")
 
-    @discord.ui.button(label="🛡 Phòng thủ", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🛡 Phòng thủ / Defend", style=discord.ButtonStyle.primary)
     async def df(self, interaction, button):
         await self._record(interaction, "D")
 
@@ -599,6 +694,7 @@ class PvpRoundView(discord.ui.View):
 
 
 async def run_pvp_battle(interaction, msg, u1, u2):
+    locale = get_locale(interaction.guild_id, u1.id)
     p1d = get_player(interaction.guild_id, u1.id)
     p2d = get_player(interaction.guild_id, u2.id)
     s1 = BattleSide(u1.display_name, p1d["tank"], p1d["dps"], player_max_hp(p1d), False, u1.id)
@@ -607,12 +703,23 @@ async def run_pvp_battle(interaction, msg, u1, u2):
     log = []
     turn = 1
     while s1.hp > 0 and s2.hp > 0 and turn <= 30:
-        view = PvpRoundView(u1.id, u2.id)
+        view = PvpRoundView(u1.id, u2.id, locale)
+        if locale == "en":
+            round_header = (
+                f"⚔️ **Round {turn}** — Both choose (30 seconds).\n\n"
+                f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
+                f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}"
+            )
+            last_label = "__**Last round:**__"
+        else:
+            round_header = (
+                f"⚔️ **Lượt {turn}** — Cả hai hãy chọn (30 giây).\n\n"
+                f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
+                f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}"
+            )
+            last_label = "__**Lượt vừa rồi:**__"
         embed = knight_embed(
-            f"⚔️ **Lượt {turn}** — Cả hai hãy chọn (30 giây).\n\n"
-            f"**{s1.name}** 💊 `{hp_bar(s1.hp, s1.max_hp)}` {max(0, s1.hp)}/{s1.max_hp}\n"
-            f"**{s2.name}** 💊 `{hp_bar(s2.hp, s2.max_hp)}` {max(0, s2.hp)}/{s2.max_hp}\n\n"
-            + (("__**Lượt vừa rồi:**__\n" + "\n".join(log)) if log else "")
+            round_header + ("\n\n" + last_label + "\n" + "\n".join(log) if log else "")
         )
         await msg.edit(embed=embed, view=view)
         try:
@@ -621,26 +728,33 @@ async def run_pvp_battle(interaction, msg, u1, u2):
             pass
         c1 = view.choices.get(u1.id, "D")
         c2 = view.choices.get(u2.id, "D")
-        log = ["⚔️ Cả hai đã ra quyết định…"]
-        log += resolve_round(s1, s2, c1, c2)
+        decided = "⚔️ Both have made their decisions…" if locale == "en" else "⚔️ Cả hai đã ra quyết định…"
+        log = [decided]
+        log += resolve_round(s1, s2, c1, c2, locale)
         turn += 1
 
     if s1.hp <= 0 and s2.hp <= 0:
-        result = "💀 Cả hai đều ngã xuống."
+        result = "💀 Both warriors have fallen." if locale == "en" else "💀 Cả hai đều ngã xuống."
         p1d["pvp_streak"] = 0
         p2d["pvp_streak"] = 0
     elif s1.hp <= 0:
-        result = f"🏆 **{s2.name}** chiến thắng! 💀 {s1.name}, sinh mệnh của ngươi… đã cạn."
+        if locale == "en":
+            result = f"🏆 **{s2.name}** is victorious! 💀 {s1.name}, your life force… has been extinguished."
+        else:
+            result = f"🏆 **{s2.name}** chiến thắng! 💀 {s1.name}, sinh mệnh của ngươi… đã cạn."
         p2d["pvp_wins"] = p2d.get("pvp_wins", 0) + 1
         p2d["pvp_streak"] = p2d.get("pvp_streak", 0) + 1
         p1d["pvp_streak"] = 0
     elif s2.hp <= 0:
-        result = f"🏆 **{s1.name}** chiến thắng! 💀 {s2.name}, sinh mệnh của ngươi… đã cạn."
+        if locale == "en":
+            result = f"🏆 **{s1.name}** is victorious! 💀 {s2.name}, your life force… has been extinguished."
+        else:
+            result = f"🏆 **{s1.name}** chiến thắng! 💀 {s2.name}, sinh mệnh của ngươi… đã cạn."
         p1d["pvp_wins"] = p1d.get("pvp_wins", 0) + 1
         p1d["pvp_streak"] = p1d.get("pvp_streak", 0) + 1
         p2d["pvp_streak"] = 0
     else:
-        result = "Trận đấu kết thúc trong bế tắc."
+        result = "The battle ends in a stalemate." if locale == "en" else "Trận đấu kết thúc trong bế tắc."
         p1d["pvp_streak"] = 0
         p2d["pvp_streak"] = 0
 
@@ -648,8 +762,8 @@ async def run_pvp_battle(interaction, msg, u1, u2):
     new2 = unlock_achievements(p2d)
     persist()
     if new1:
-        result += f"\n\n<@{u1.id}>" + announce_unlocks(new1)
+        result += f"\n\n<@{u1.id}>" + announce_unlocks(new1, locale)
     if new2:
-        result += f"\n\n<@{u2.id}>" + announce_unlocks(new2)
+        result += f"\n\n<@{u2.id}>" + announce_unlocks(new2, locale)
 
-    await msg.edit(embed=knight_embed(result), view=None)
+    await msg.edit(embed=knight_embed(result), view=PostBattleView(u1))
