@@ -51,7 +51,6 @@ TR = {
     "btn_tank_left":  ("◀️ Né trái",   "◀️ Dodge left"),
     "btn_tank_still": ("⏸️ Đứng yên",  "⏸️ Stand still"),
     "btn_tank_right": ("▶️ Né phải",   "▶️ Dodge right"),
-    "btn_tank_jump":  ("🔼 Nhảy lên",  "🔼 Jump"),
     "msg_not_your_turn": ("Đây không phải lượt của ngươi.", "Not your turn."),
     "msg_only_summoner": ("Chỉ người triệu hồi ta mới có thể chọn.", "Only the one who summoned me may choose."),
     "msg_choose_train": ("Hãy chọn bài tập phù hợp:", "Choose your training:"),
